@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Repository='USERNAME/tqsim',[string]$InstallRoot=(Join-Path $env:LOCALAPPDATA 'Programs/Tqsim'))
+param([string]$Repository='SamiAlmouss/Tqsim',[string]$InstallRoot=(Join-Path $env:LOCALAPPDATA 'Programs/Tqsim'))
 $ErrorActionPreference='Stop'
 function Get-TqsimUserPath { [Environment]::GetEnvironmentVariable('Path','User') }
 function Set-TqsimUserPath([AllowNull()][string]$Value) { [Environment]::SetEnvironmentVariable('Path',$Value,'User') }
@@ -85,5 +85,12 @@ function Install-TqsimRelease {
     }
 }
 if ($MyInvocation.InvocationName -ne '.') {
-    try {Install-TqsimRelease -Repository $Repository -InstallRoot $InstallRoot} catch {Write-Error "Installation failed: $($_.Exception.Message)" -ErrorAction Continue; if ($MyInvocation.InvocationName -eq '<ScriptBlock>') {throw};exit 1}
+    try {
+        Install-TqsimRelease `
+            -Repository $Repository `
+            -InstallRoot $InstallRoot
+    }
+    catch {
+        throw "Tqsim installation failed: $($_.Exception.Message)"
+    }
 }
