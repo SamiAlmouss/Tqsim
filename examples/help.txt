@@ -1,0 +1,8 @@
+Tqsim — Split • Merge • Verify
+tqsim split -File <path> -Size <bytes|500MB|2GB|1024MiB> [-Output <directory>]
+tqsim merg|merge [-PartsPath <directory>] [-Manifest <path>] [-Output <directory>] [-Overwrite]
+tqsim verify [-PartsPath <directory>] [-Manifest <path>]
+tqsim info -Manifest <path>
+tqsim help|version|update|uninstall
+All commands: -NoLogo -Quiet. Streaming commands: -BufferSize <4096..67108864>.
+Exit codes: 0 success; 1 I/O, deployment or operational failure; 2 usage; 3 invalid manifest/integrity.

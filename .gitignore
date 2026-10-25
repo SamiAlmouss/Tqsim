@@ -1,0 +1,18 @@
+﻿# Temporary test files
+.test-work/
+
+# Build and release output
+dist/
+
+# Generated file parts
+*.part[0-9]*
+
+# Incomplete operations
+*.partial
+*.tmp
+
+# Runtime output directories
+Output/
+
+# Logs
+*.log
