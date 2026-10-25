@@ -50,7 +50,15 @@ tqsim help
 tqsim version
 ```
 
-From this checkout, use `pwsh -NoProfile -File ./tqsim.ps1` in place of `tqsim`. Commands are case insensitive. `merg` and `merge` are aliases. All commands accept `-NoLogo` and `-Quiet`; streaming commands also accept `-BufferSize` (4096 to 67108864 bytes). `info` reports metadata only and does not verify the parts.
+From this checkout, use `pwsh -NoProfile -File ./tqsim.ps1` in place of `tqsim`. Commands are case insensitive. `merg` and `merge` are aliases. All commands accept `-NoLogo`, `-Quiet`, and `-Diagnostics`; streaming commands also accept `-BufferSize` (4096 to 67108864 bytes). `info` reports metadata only and does not verify the parts.
+
+For development failures, add `-Diagnostics` to print the exception type, source script, exact line number, PowerShell ScriptStackTrace, and inner exceptions to stderr. Normal mode retains readable errors and the same exit codes. To retry after an incomplete split, choose a fresh output directory; Tqsim refuses to overwrite existing part names:
+
+```powershell
+pwsh -NoProfile -File ./tqsim.ps1 split -File 'E:\Win11_Arabic_x64v1.iso' -Size 1GB -Output 'E:\Tqsim-parts-v1.0.2' -Diagnostics
+```
+
+That example is for a user-initiated retry; automated tests use disposable binary data and never the original ISO.
 
 Sizes are positive integer bytes, or binary suffixes B, KB/KiB, MB/MiB, GB/GiB, TB/TiB. Thus 1GB = 1,073,741,824 bytes. Fractional, negative and overflowing sizes are rejected.
 
@@ -92,8 +100,17 @@ Part indexes start at 1 without gaps; all but the final part equal partSize; len
 
 ## Update and uninstall
 
+Version 1.0.2 fixes an interactive-progress failure: `[double].001` was parsed as property access, producing a StrictMode error for property `1`. The corrected numeric literal is `[double]0.001`. Progress arithmetic now has direct regression coverage even when tests run with redirected output. The Int64 streaming fix from 1.0.1 remains in place. Existing manifests remain compatible; the manifest schema and existing CLI syntax are unchanged. Once the v1.0.2 release has been published, update the installed global command and check its version:
+
 ```powershell
 tqsim update
+tqsim version -NoLogo
+# Expected after updating: 1.0.2
+```
+
+If the installed updater is unavailable, download and inspect the current `install.ps1` as described above, then rerun it with your repository name. It installs the latest stable release and preserves prior versions. Updating the application does not modify your original backup, parts, or manifests.
+
+```powershell
 tqsim uninstall
 ```
 
@@ -110,7 +127,7 @@ Invoke-Pester ./tests
 ./scripts/build-release.ps1
 ```
 
-The build produces `dist/Tqsim-v1.0.0.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
+The build produces `dist/Tqsim-v1.0.2.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
 
 ## Publish to GitHub
 
@@ -119,21 +136,21 @@ No publication has been performed by this project generator. Install Git and Git
 ```powershell
 git init -b main
 git add .
-git commit -m 'Release Tqsim 1.0.0'
+git commit -m 'Release Tqsim 1.0.2'
 gh auth login
 gh repo create USERNAME/tqsim --public --source . --remote origin --description 'Fast and reliable PowerShell CLI for splitting, merging, and verifying massive files.'
 gh repo edit USERNAME/tqsim --add-topic powershell,file-splitter,file-merger,large-files,sha256,cli,backup,windows
 git push -u origin main
 ./scripts/build-release.ps1
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 The tag workflow validates syntax/version, runs mandatory tests, builds and publishes assets. Alternatively publish manually **instead of pushing the release tag workflow**:
 
 ```powershell
-gh release create v1.0.0 ./dist/Tqsim-v1.0.0.zip ./dist/Tqsim-v1.0.0.zip.sha256 --target main --title 'Tqsim v1.0.0' --notes-file CHANGELOG.md
-gh release view v1.0.0 --repo USERNAME/tqsim
+gh release create v1.0.2 ./dist/Tqsim-v1.0.2.zip ./dist/Tqsim-v1.0.2.zip.sha256 --target main --title 'Tqsim v1.0.2' --notes-file CHANGELOG.md
+gh release view v1.0.2 --repo USERNAME/tqsim
 Invoke-WebRequest https://raw.githubusercontent.com/USERNAME/tqsim/main/install.ps1 -Method Head
 ```
 

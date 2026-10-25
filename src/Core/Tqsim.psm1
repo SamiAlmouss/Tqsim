@@ -14,7 +14,7 @@ function Show-TqsimBanner {
   | | | | | \___ \| || |\/| |
   | | | |_| |___) | || |  | |
   |_|  \__\_\____/___|_|  |_|
-Split • Merge • Verify    Version: 1.0.0
+Split • Merge • Verify    Version: 1.0.2
 '@ -ForegroundColor Cyan
 }
 function ConvertTo-TqsimSize([string]$Size) {
@@ -23,6 +23,11 @@ function ConvertTo-TqsimSize([string]$Size) {
     $power=switch ($unit) { {$_ -in 'KB','KIB'} {1} {$_ -in 'MB','MIB'} {2} {$_ -in 'GB','GIB'} {3} {$_ -in 'TB','TIB'} {4} default {0} }
     $n*= [Numerics.BigInteger]::Pow(1024,$power)
     if ($n -le 0 -or $n -gt [long]::MaxValue) { throw [ArgumentException]::new('Size must be within positive Int64 range.') }; return [long]$n
+}
+function Get-TqsimReadCount([int]$BufferLength,[long]$Remaining) {
+    # Select Min(Int64, Int64) before narrowing the bounded FileStream count.
+    # Casting only the result cannot prevent PowerShell selecting Min(Int32, Int32).
+    return [int][math]::Min([long]$BufferLength,[long]$Remaining)
 }
 function Assert-TqsimName($Name) {
     if ($Name -isnot [string] -or !$Name -or $Name -in '.','..' -or $Name -match '[<>:"/\\|?*\x00-\x1f]' -or $Name -match '[ .]$' -or $Name -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { throw [IO.InvalidDataException]::new('Unsafe manifest filename.') }
@@ -51,7 +56,7 @@ function Read-TqsimManifest([string]$Path) {
         }
         if ($sum -ne $m.originalSize -or ($m.originalSize -eq 0 -and $m.totalParts -ne 0)) { throw 'Invalid total length.' }
         return $m
-    } catch { throw [IO.InvalidDataException]::new("Invalid manifest: $($_.Exception.Message)") }
+    } catch { throw [IO.InvalidDataException]::new("Invalid manifest: $($_.Exception.Message)",$_.Exception) }
 }
 function Find-TqsimManifest([string]$PartsPath,[string]$Manifest) {
     if ($Manifest) { return [IO.Path]::GetFullPath($Manifest) }
@@ -76,30 +81,35 @@ function New-TqsimDestination([string]$Path,[long]$Bytes) {
 function New-TqsimStream([string]$Path,[IO.FileMode]$Mode,[IO.FileAccess]$Access) {
     return [IO.FileStream]::new($Path,$Mode,$Access,[IO.FileShare]::Read,4096,[IO.FileOptions]::SequentialScan)
 }
+function Get-TqsimProgressMetrics([long]$Done,[long]$Total,[long]$Part,[double]$ElapsedSeconds) {
+    # The leading zero is required: [double].001 is property access under StrictMode.
+    $seconds=[math]::Max([double]0.001,$ElapsedSeconds); $rate=$Done/$seconds
+    $eta=if ($rate -gt 0) { [math]::Min([double]2147483647,[double](($Total-$Done)/$rate)) } else {0}
+    return [pscustomobject]@{Rate=$rate;Eta=$eta;CompletedParts=[math]::Max([long]0,[long]($Part-1L));Percent=$(if ($Total) {[math]::Min([double]100,[double](100.0*$Done/$Total))} else {100})}
+}
 function Show-TqsimProgress($State,[long]$Done,[long]$Total,[long]$Part,[long]$Count,$Clock,[switch]$Quiet) {
     if ($Quiet -or [Console]::IsOutputRedirected) { return }
-    $seconds=[math]::Max(.001,$Clock.Elapsed.TotalSeconds); $rate=$Done/$seconds
-    $eta=if ($rate -gt 0) { [math]::Min([int]::MaxValue,($Total-$Done)/$rate) } else {0}
-    Write-Progress -Activity "TQSIM — $State" -Status ("Part {0}/{1}; completed {2}; {3}/{4} bytes; {5:N1} MiB/s; elapsed {6}; ETA {7:N0}s" -f $Part,$Count,([math]::Max(0,$Part-1)),$Done,$Total,($rate/1MB),$Clock.Elapsed.ToString('hh\:mm\:ss'),$eta) -PercentComplete $(if ($Total) {[math]::Min(100,100.0*$Done/$Total)} else {100})
+    $metrics=Get-TqsimProgressMetrics $Done $Total $Part $Clock.Elapsed.TotalSeconds
+    Write-Progress -Activity "TQSIM — $State" -Status ("Part {0}/{1}; completed {2}; {3}/{4} bytes; {5:N1} MiB/s; elapsed {6}; ETA {7:N0}s" -f $Part,$Count,$metrics.CompletedParts,$Done,$Total,($metrics.Rate/1MB),$Clock.Elapsed.ToString('hh\:mm\:ss'),$metrics.Eta) -PercentComplete $metrics.Percent
 }
 function Split-Tqsim {
     param([string]$File,[string]$Size,[string]$Output,[switch]$Quiet,[int]$BufferSize=4194304)
-    $chunk=ConvertTo-TqsimSize $Size; $source=[IO.Path]::GetFullPath($File); Assert-TqsimRegular $source
+    [long]$chunk=ConvertTo-TqsimSize $Size; $source=[IO.Path]::GetFullPath($File); Assert-TqsimRegular $source
     $inputStream=New-TqsimStream $source Open Read; $whole=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256'); $owned=[Collections.Generic.List[string]]::new(); $success=$false
     try {
-        $length=$inputStream.Length; $stamp=[IO.File]::GetLastWriteTimeUtc($source)
+        [long]$length=$inputStream.Length; $stamp=[IO.File]::GetLastWriteTimeUtc($source)
         if (!$Output) {$Output=Join-Path ([IO.Path]::GetDirectoryName($source)) 'Output'}
         $dest=New-TqsimDestination $Output $length; $name=[IO.Path]::GetFileName($source)
-        $count=[long]([Numerics.BigInteger]::Divide(([Numerics.BigInteger]$length+$chunk-1),$chunk)); $width=[math]::Max(4,$count.ToString().Length)
+        [long]$count=[Numerics.BigInteger]::Divide(([Numerics.BigInteger]$length+$chunk-1),$chunk); $width=[math]::Max([long]4,[long]$count.ToString().Length)
         $manifestPath=Join-Path $dest "$name.tqsim.json"
         if (Test-Path -LiteralPath $manifestPath) { throw 'Manifest already exists.' }
         for ($i=1L;$i -le $count;$i++) { if (Test-Path -LiteralPath (Join-Path $dest ($name+'.part'+$i.ToString("D$width")))) {throw 'Part already exists.'} }
-        $buffer=[byte[]]::new($BufferSize); $parts=[Collections.Generic.List[object]]::new(); $done=0L; $clock=[Diagnostics.Stopwatch]::StartNew(); $tick=0L
+        $buffer=[byte[]]::new($BufferSize); $parts=[Collections.Generic.List[object]]::new(); [long]$done=0; $clock=[Diagnostics.Stopwatch]::StartNew(); [long]$tick=0
         for ($i=1L;$i -le $count;$i++) {
             $partName=$name+'.part'+$i.ToString("D$width"); $final=Join-Path $dest $partName; $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp'); $owned.Add($temp)
-            $stream=New-TqsimStream $temp CreateNew Write; $hash=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256'); $written=0L; $target=[math]::Min($chunk,$length-$done)
+            $stream=New-TqsimStream $temp CreateNew Write; $hash=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256'); [long]$written=0; [long]$target=[math]::Min([long]$chunk,[long]($length-$done))
             try { while ($written -lt $target) {
-                $read=$inputStream.Read($buffer,0,[int][math]::Min($buffer.Length,$target-$written)); if (!$read) {throw 'Unexpected EOF.'}
+                $read=$inputStream.Read($buffer,0,(Get-TqsimReadCount $buffer.Length ([long]($target-$written)))); if (!$read) {throw 'Unexpected EOF.'}
                 $stream.Write($buffer,0,$read); $hash.AppendData($buffer,0,$read); $whole.AppendData($buffer,0,$read); $written+=$read; $done+=$read
                 if ($clock.ElapsedMilliseconds-$tick -ge 250) {Show-TqsimProgress SPLITTING $done $length $i $count $clock -Quiet:$Quiet; $tick=$clock.ElapsedMilliseconds}
             }; $stream.Flush($true); $digest=ConvertTo-TqsimHex ($hash.GetHashAndReset()) } finally {$stream.Dispose();$hash.Dispose()}
@@ -107,18 +117,18 @@ function Split-Tqsim {
             [IO.File]::Move($temp,$final); $owned.Add($final); $parts.Add(@{index=$i;fileName=$partName;size=$written;sha256=$digest})
         }
         if ($inputStream.Length -ne $length -or [IO.File]::GetLastWriteTimeUtc($source) -ne $stamp -or $inputStream.ReadByte() -ne -1) {throw 'Source changed during split.'}
-        $m=[ordered]@{application='Tqsim';applicationVersion='1.0.0';manifestVersion=1;operationId=[guid]::NewGuid().ToString();originalFileName=$name;originalSize=$length;partSize=$chunk;totalParts=$count;hashAlgorithm='SHA256';originalSHA256=(ConvertTo-TqsimHex ($whole.GetHashAndReset()));createdUtc=[datetime]::UtcNow.ToString('o');parts=@($parts.ToArray())}
+        $m=[ordered]@{application='Tqsim';applicationVersion='1.0.2';manifestVersion=1;operationId=[guid]::NewGuid().ToString();originalFileName=$name;originalSize=$length;partSize=$chunk;totalParts=$count;hashAlgorithm='SHA256';originalSHA256=(ConvertTo-TqsimHex ($whole.GetHashAndReset()));createdUtc=[datetime]::UtcNow.ToString('o');parts=@($parts.ToArray())}
         $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$owned.Add($temp);[IO.File]::WriteAllText($temp,($m|ConvertTo-Json -Depth 8));[IO.File]::Move($temp,$manifestPath);$success=$true
         if (!$Quiet) {Write-Output "COMPLETED: $count parts, $length bytes; $manifestPath"}
     } finally { $inputStream.Dispose();$whole.Dispose(); Write-Progress -Activity TQSIM -Completed; if (!$success) {foreach ($path in $owned) {if ([IO.File]::Exists($path)) {[IO.File]::Delete($path)}}} }
 }
 function Invoke-TqsimParts {
     param($Metadata,[string]$Directory,$Destination,[switch]$Quiet,[int]$BufferSize=4194304,[string]$State='VERIFYING')
-    $buffer=[byte[]]::new($BufferSize);$whole=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256');$done=0L;$clock=[Diagnostics.Stopwatch]::StartNew();$tick=0L
+    $buffer=[byte[]]::new($BufferSize);$whole=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256');[long]$done=0;$clock=[Diagnostics.Stopwatch]::StartNew();[long]$tick=0
     try { foreach ($part in $Metadata.parts) {
         $path=Join-Path $Directory $part.fileName; Assert-TqsimRegular $path; $s=New-TqsimStream $path Open Read;$hash=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256')
-        try {if ($s.Length -ne $part.size) {throw [IO.InvalidDataException]::new("Wrong size: $($part.fileName)")};$remaining=[long]$part.size
-            while ($remaining -gt 0) {$n=$s.Read($buffer,0,[int][math]::Min($buffer.Length,$remaining));if (!$n) {throw [IO.InvalidDataException]::new('Unexpected EOF.')};$hash.AppendData($buffer,0,$n);$whole.AppendData($buffer,0,$n);if ($Destination) {$Destination.Write($buffer,0,$n)};$remaining-=$n;$done+=$n
+        try {if ($s.Length -ne $part.size) {throw [IO.InvalidDataException]::new("Wrong size: $($part.fileName)")};[long]$remaining=$part.size
+            while ($remaining -gt 0) {$n=$s.Read($buffer,0,(Get-TqsimReadCount $buffer.Length $remaining));if (!$n) {throw [IO.InvalidDataException]::new('Unexpected EOF.')};$hash.AppendData($buffer,0,$n);$whole.AppendData($buffer,0,$n);if ($Destination) {$Destination.Write($buffer,0,$n)};$remaining-=$n;$done+=$n
                 if ($clock.ElapsedMilliseconds-$tick -ge 250) {Show-TqsimProgress $State $done $Metadata.originalSize $part.index $Metadata.totalParts $clock -Quiet:$Quiet;$tick=$clock.ElapsedMilliseconds}
             }
             if ((ConvertTo-TqsimHex ($hash.GetHashAndReset())) -ine $part.sha256) {throw [IO.InvalidDataException]::new("SHA256 mismatch: $($part.fileName)")}

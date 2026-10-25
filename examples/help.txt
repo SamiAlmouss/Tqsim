@@ -4,5 +4,6 @@ tqsim merg|merge [-PartsPath <directory>] [-Manifest <path>] [-Output <directory
 tqsim verify [-PartsPath <directory>] [-Manifest <path>]
 tqsim info -Manifest <path>
 tqsim help|version|update|uninstall
-All commands: -NoLogo -Quiet. Streaming commands: -BufferSize <4096..67108864>.
+All commands: -NoLogo -Quiet -Diagnostics. Streaming commands: -BufferSize <4096..67108864>.
+Diagnostics adds exception type, source line, ScriptStackTrace and inner exceptions to errors.
 Exit codes: 0 success; 1 I/O, deployment or operational failure; 2 usage; 3 invalid manifest/integrity.
