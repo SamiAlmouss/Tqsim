@@ -1,6 +1,7 @@
 INFO
   tqsim info -Manifest <path>
-  tqsim info [-PartsPath <directory>]
+  tqsim info [-PartsPath <directory>] [-Manifest <path>]
+    [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
 
 OPTIONS
   -Manifest     Path to the .tqsim.json metadata file.
@@ -14,6 +15,14 @@ METADATA
   Displays original filename, exact/human size, part size/count, original SHA-256,
   creation timestamp, application version and manifest schema version.
   Metadata inspection is not cryptographic verification of the actual parts.
+  Shows declared maximum part size, not a per-part listing. Schema 2 identifies
+  encrypted metadata, but info has no explicit encryption-status field and does
+  not request a password or authenticate its HMAC. Treat metadata as untrusted
+  until verify/merge succeeds. Missing/damaged/ambiguous metadata fails.
+  -Manifest defaults to exactly one discovered manifest; an explicit manifest
+  takes precedence over PartsPath. All switches default off.
+  Help: -help, --help, -h, --h, -?, /?, /help; also info help.
 
 EXAMPLE
   tqsim info -Manifest "E:\Parts\backup.iso.tqsim.json"
+  tqsim info -PartsPath "E:\Parts" -NoLogo

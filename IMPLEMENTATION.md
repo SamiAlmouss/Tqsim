@@ -1,3 +1,23 @@
+# Tqsim 1.0.7 help and documentation release
+
+The command/parameter inventory was audited against the current parser, processing function signatures, metadata reader, encryption/error handling and managed deployment scripts before writing documentation. No command, operation parameter, processing algorithm or archive format was added or changed. src/Core/Tqsim.psm1, Encryption.ps1, Crypto.cs, Deletion.ps1, Errors.ps1 and src/Console/Branding.ps1 remain byte-identical to the initial v1.0.6 checkout; validation compares their SHA-256.
+
+## Changes
+
+- src/Commands/CLI.ps1 changes only Get-TqsimHelp (resolve the version placeholder from authoritative metadata) and Show-TqsimHelp (word-wrap interactive text within terminal width, preserving redirected text, NoColor and styled headings). Argument parsing and dispatch are unchanged.
+- examples/help.txt: compact title/version, usage, nine commands/aliases, all globals/aliases, quick start, defaults/security and help discovery. Every topic under examples/help is complete, including optional BufferSize/Overwrite/Manifest, all defaults, secure input, fast-mode assurance and safe cleanup/recovery.
+- README.md: navigable English introduction, requirements/install, every command, defaults, encryption/deletion/verification guides, directory trees, historical measured performance, troubleshooting, managed update/uninstall, security, FAQ, contribution/license and manual publication instructions.
+- README.ar.md: Arabic guide with matching functionality/defaults and the same unique executable tqsim examples. docs/COMMANDS.md mirrors the CLI pages; PARAMETERS.md inventories all 14 named options plus aliases/topic/defaults/accepted values/warnings; TROUBLESHOOTING.md covers symptoms/causes/remedies; HELP-COVERAGE.md records every command and audit corrections.
+- Build/installer rollback/uninstaller known-file lists include Arabic/reference/history documents and changelog. Required-file checks, checksum/ZIP safety, PATH and deployment logic remain unchanged. Documentation metadata/test fixtures update to 1.0.7.
+- tests/Documentation.Tests.ps1 adds 12 regression tests covering parser option inventory, command coverage/version/defaults, literal CLI-guide agreement, both-language example parsing/equality, local Markdown target/anchor resolution, current merge behavior, all topic/help-alias combinations without operation/secret/ACL/journal/deployment dispatch, narrow/one-column terminals, NoLogo/NoColor/Quiet and redirected output.
+
+## Audit corrections and scope
+
+Info is metadata-only: it displays maximum part size and schema, not per-part sizes or a dedicated encryption status, and does not authenticate encrypted metadata. Explicit Manifest overrides discovery; relative paths are relative to current working directory, with parts beside the selected manifest. Merge publishes after mandatory streaming integrity/authentication; optional independent read-back happens afterward, before deletion. Update has no check-only flag or confirmation; uninstall has no confirmation. Help bypasses operation requirements/value validation, not unknown/duplicate/malformed syntax. No unsupported Password/Source/Force/Check parameter is documented as a feature.
+
+The existing 219 tests are retained; no assertions are weakened. Complete final counts, failures/skips, runtime versions, source preservation and extracted-package checks are recorded in docs/VALIDATION-v1.0.7.md. Historical engine/performance/security reports below retain their original release scope. No new multi-gigabyte performance or external crypto audit is claimed for this documentation release. No tag, push, publication, global installation or user ISO/backup access occurs. Release outputs: dist/Tqsim-v1.0.7.zip and its SHA-256 checksum. Manual publication and installed update steps appear in both READMEs.
+
+---
 # Tqsim 1.0.6 implementation and validation
 
 Version 1.0.6 adds opt-in authenticated encryption, same-directory merge output, private recovery records and narrowly scoped deletion-permission handling. Legacy unencrypted schema 1 and part bytes retain their meaning. No user ISO/backup, global installation, Git commit, push or publication was used. Historical reports below describe their own releases only.

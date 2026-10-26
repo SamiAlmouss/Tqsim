@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.7 — 2026-10-26
+
+- Documentation/help release only: preserve byte-identical split/merge, SHA-256, encryption, deletion and branding engine sources and all archive formats.
+- Reorganize main help into usage, commands, globals, quick start, security and topic discovery; render the version from version.json even with NoLogo.
+- Complete every command page, full parameter/default/alias coverage, safer deletion/encryption examples and accurate manifest selection/info/update behavior. Wrap interactive help at terminal width without changing redirected text or branding.
+- Rewrite the English README with navigation and complete workflows; add a faithful Arabic guide with matching executable examples, command/parameter references, troubleshooting and a documentation coverage matrix.
+- Add documentation consistency, parser/example/link/anchor, no-operation/password/ACL/deployment help isolation and narrow-terminal regressions. Ship both languages and reference/security/history documents; extend owned-file rollback/uninstall lists without changing installer validation or processing behavior.
+
 ## 1.0.6 — 2026-10-26
 
 - Preserve legacy unencrypted schema/part bytes and verify authentic relocated fixtures generated with archived 1.0.2–1.0.5 releases, without original source files or password prompts.

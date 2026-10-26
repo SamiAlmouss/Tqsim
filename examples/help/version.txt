@@ -1,7 +1,15 @@
 VERSION
   tqsim version
+    [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
   tqsim -version | --version | -v | -V
 
   Reads the authoritative application version.json metadata.
   -NoLogo hides branding; -Quiet keeps requested version output.
   -NoColor disables colors; -Diagnostics adds development error details.
+  All switches default off; no command-specific parameters. Version flags work
+  as a global command, not alongside an operation (use tqsim version).
+  Help: -help, --help, -h, --h, -?, /?, /help; also version help.
+
+EXAMPLES
+  tqsim version -NoLogo
+  tqsim --version -NoLogo

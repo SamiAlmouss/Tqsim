@@ -1,60 +1,74 @@
 SPLIT
-  tqsim split -File <source> -Size <size> [-Output <directory>]
-              [-ds <true|false>] [-verify <true|false>] [-encrypt <true|false>]
+  tqsim split -File <path> -Size <size> [-Output <directory>]
+    [-ds <true|false>] [-verify <true|false>] [-encrypt <true|false>]
+    [-BufferSize <bytes>] [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
 
 OPTIONS
-  -encrypt      true or false (case insensitive). Default: false. Split only.
-                true securely prompts twice for a 12..1024-character passphrase.
-                AES-256-GCM encryption uses authenticated bounded records.
-                There is no password/key command-line option or recovery service.
-  -File         Original binary file; retained unless -ds true is explicit.
-  -ds           true or false (case insensitive). Default: false, keep source.
-                true deletes only after required streaming/publication checks
-                and independent verification when enabled.
-  -verify       true or false (case insensitive). Default: true.
-                true reads back the split set once; false skips this extra pass.
-                Streaming SHA-256, byte counts, safe publication and deletion
-                identity checks remain mandatory. Omitted options use defaults.
-  -Size         Positive integer bytes or B, KB/KiB, MB/MiB, GB/GiB, TB/TiB.
-  -Output       Destination directory; defaults to Output beside the source.
-  -BufferSize   Bounded I/O buffer in bytes, 4096..67108864 (default 4194304).
-  -NoLogo       Hide branding; preserve operation output.
-  -Quiet        Suppress routine output and progress; errors remain visible.
-  -Diagnostics  Add exception type, source line, stack and inner exceptions.
-  -NoColor      Disable Tqsim text colors. NO_COLOR is also respected.
+  -File <path>       Required original file; no implicit source.
+  -Size <size>       Required maximum physical part size, not buffer size.
+  -Output <dir>      Default: Output beside the source file.
+  -ds <true|false>
+    Default: false. Keep original. true deletes it only after completed
+    writes, required integrity checks and read-back when enabled.
+  -verify <true|false>
+    Default: true. Read finished parts back once; check exact lengths,
+    per-part and whole-file SHA-256. false skips this independent pass;
+    mandatory streaming hashes/counts and encryption authentication remain.
+  -encrypt <true|false>
+    Default: false. Split-only. true securely asks for a hidden
+    12..1024-character password and confirmation. AES-256-GCM;
+    no password/key CLI parameter and no password recovery.
+  -BufferSize <bytes> Default: 4194304; integer 4096..67108864.
+    Ordinary I/O buffer; encrypted records remain at most 4 MiB.
+  -NoLogo            Default: off; hide branding.
+  -NoColor           Default: off; disable colors. NO_COLOR also applies.
+  -Quiet             Default: off; hide routine output/progress, not errors.
+  -Diagnostics       Default: off; add type, line, stack and inner errors.
+  Help: -help, --help, -h, --h, -?, /?, /help; also split help.
+  Omitted optional parameters use defaults. true/false is case insensitive,
+  quoted or unquoted; yes/no/1/0 are usage errors.
 
-SIZES AND INTEGRITY
-  Units are binary: 1GB = 1GiB = 1,073,741,824 bytes.
-  Decimal 1 gigabyte is 1,000,000,000 bytes; use -Size 1000000000 for that.
-  Streaming uses bounded memory for data, Int64 counts and SHA-256 hashes.
-  Parts and the .tqsim.json manifest are never silently overwritten.
-  Empty input produces zero parts and the empty-stream SHA-256 manifest.
-  Unencrypted part bytes and schema 1 remain unchanged and merge without secrets.
-  Encrypted schema 2 accounts for 28 bytes framing/tag overhead per record;
-  physical parts never exceed Size. Minimum encrypted Size: 29 bytes.
-  -verify false never disables encryption authentication. Keep your password:
-  if lost, your encrypted archive cannot be recovered. Do not redirect prompts.
+SIZES AND FILES
+  Positive integer bytes or B, KB/KiB, MB/MiB, GB/GiB, TB/TiB; no fractions,
+  spaces or negative values. Maximum: positive Int64 bytes.
+  All suffixes are binary: 1GB = 1GiB = 1,073,741,824 bytes.
+  Decimal 1 gigabyte = 1,000,000,000 bytes: use -Size 1000000000.
+  backup.iso becomes backup.iso.part0001, .part0002, ... and
+  backup.iso.tqsim.json. Keep ALL parts and the original manifest together.
+  No silent overwrite. Empty input creates a zero-part manifest.
+  Unencrypted schema 1 and raw part bytes remain unchanged.
+  Encrypted schema 2 adds 28 bytes per bounded record; physical parts
+  never exceed Size. Minimum encrypted Size: 29 bytes. Metadata is visible.
 
-DELETE SOURCE WARNING
-  Delete Source is irreversible. Use true only when the generated data has
-  been verified and is stored safely. SHA-256 is not an independent backup
-  and does not guarantee future storage durability. Extra verification I/O
-  and locks are required. Unsafe links/identities cause deletion to fail closed.
-  Successful cleanup removes its record; partial/interrupted cleanup keeps a private recovery record. No automatic retry.
-  -ds true -verify false is an explicit fast mode with less integrity assurance:
-  no independent output read-back occurs. Successful writes and flush do not
-  guarantee durable storage under every device or power-failure condition.
+FAILURE AND DELETION
+  Failure/cancellation before cleanup preserves the original. Partial output
+  may remain: inspect it and choose a fresh directory before retrying.
+  Deletion is irreversible, not secure erasure and not a backup.
+  Protect the password and test recovery BEFORE deleting important data.
+  Do not redirect password prompts. Cleanup failure keeps completed parts;
+  resolve exact source access with an authorized account, not a repeated split.
+  Success removes its cleanup record; partial/interrupted cleanup keeps
+  private state in %LOCALAPPDATA%\Tqsim\Recovery. No automatic retry.
+  -ds true -verify false has less assurance: no independent read-back.
+  Successful writes/flushes do not guarantee durability after power loss.
 
 EXAMPLES
-  tqsim split -File "D:\backup.iso" -Size 500MB
-  tqsim split -File "D:\backup.iso" -Size 1GB
-  tqsim split -File "D:\backup.iso" -Size 2GB -Output "E:\Parts"
-  tqsim split -File "D:\backup.iso" -Size 4GB -NoLogo
-  tqsim split -File "D:\backup.iso" -Size 2GB -ds false
-  tqsim split -File "D:\backup.iso" -Size 2GB -ds true
-  tqsim split -File "D:\backup.iso" -Size 2GB -ds true -verify false
-  tqsim split -File "D:\backup.iso" -Size 2GB -encrypt true
+  Basic: defaults keep original, verify output, no encryption:
+    tqsim split -File "D:\backup.iso" -Size "1GB"
+  2GB maximum parts:
+    tqsim split -File "D:\backup.iso" -Size "2GB"
+  Custom destination:
+    tqsim split -File "D:\backup.iso" -Size "1GB" -Output "E:\MyParts"
+  Maximum-speed mode skips independent verification, reducing assurance:
+    tqsim split -File "D:\backup.iso" -Size "1GB" -verify "false"
+  Delete original after required completion/integrity checks:
+    tqsim split -File "D:\backup.iso" -Size "1GB" -ds "true"
+  Encrypt: hidden password and confirmation:
+    tqsim split -File "D:\backup.iso" -Size "1GB" -encrypt "true"
+  Encrypt and delete: protect password and prove recoverability first:
+    tqsim split -File "D:\backup.iso" -Size "1GB" -encrypt "true" -ds "true"
 
-HELP
+GET HELP
   tqsim help split
   tqsim split --help
+  tqsim split -h

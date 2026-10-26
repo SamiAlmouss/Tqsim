@@ -1,46 +1,49 @@
+TQSIM — SECURE FILE SPLITTER & MERGER
+  Version: {{VERSION}}
+
 USAGE
   tqsim <command> [options]
 
 COMMANDS
-  split       Split a binary file into smaller parts
-  merg        Reassemble a file from its parts
+  split       Split a file; optionally encrypt its parts
+  merg        Reconstruct the original file from its parts
   merge       Alias for merg
-  verify      Verify parts and original SHA-256
-  info        Display manifest metadata without verifying parts
-  update      Update a managed installation from GitHub Releases
-  uninstall   Remove owned application files and its PATH entry
-  version     Display the installed application version
+  verify      Check all parts and the original SHA-256
+  info        View metadata without checking parts
+  update      Check and apply a managed installation update
+  uninstall   Remove owned application files and PATH entry
+  version     Display application version
   help        Display main or command-specific help
 
 GLOBAL OPTIONS
-  -h, --help          Help (also help, -help, --h, -?, /?, /help)
-  -v, --version       Version (also version, -version; case insensitive)
-  -NoLogo             Hide all branding
-  -Quiet              Suppress routine output and progress; errors remain
-  -Diagnostics        Exception type, exact source line, stack and inner errors
-  -NoColor            Disable Tqsim text colors (also NO_COLOR)
+  -NoLogo       Hide branding; requested help/results remain
+  -NoColor      Disable Tqsim colors (also NO_COLOR)
+  -Quiet        Hide routine output/progress; retain help/errors
+  -Diagnostics  Add exception type, source line and stack on errors
+  Help: help, -help, --help, -h, --h, -?, /?, /help
+  Version: version, -version, --version, -v (case insensitive)
 
-EXAMPLES
-  tqsim split -File "D:\backup.iso" -Size 2GB
-  tqsim split -File "D:\backup.iso" -Size 500MB
-  tqsim merg -PartsPath "D:\Parts"
-  tqsim split -File "D:\disposable.bin" -Size 2GB -ds false
-  tqsim verify -PartsPath "D:\Parts"
+QUICK START
+  tqsim split -File "D:\backup.iso" -Size 1GB
+  tqsim verify -PartsPath "D:\Output"
+  tqsim merg -PartsPath "D:\Output"
+  Split defaults to Output beside the source. Merge restores directly
+  in the selected manifest directory unless -Output is supplied.
+  Existing restored files require explicit merge -Overwrite.
 
-COMMAND HELP
-  tqsim help <command>
-  tqsim <command> --help
-  tqsim split -h
+SECURITY OPTIONS
+  Split/merge: -ds true|false (Default: false), keep sources.
+  Split/merge: -verify true|false (Default: true), read output back once.
+  Split only: -encrypt true|false (Default: false), hidden password prompts.
+  Encrypted merge/verify detect encryption automatically; authentication
+  stays mandatory with -verify false. Old plain archives need no password.
+  Lost passwords cannot be recovered. Source deletion is irreversible.
 
-NOTES
-  No arguments displays this help. Help never starts file operations.
-  Options are case insensitive; named file options use a single dash.
-  Quote paths with spaces/Unicode. Use .\ before names starting with a dash.
-  Decimal 1GB = 1,000,000,000 bytes; Tqsim 1GB = 1GiB = 1,073,741,824 bytes.
-  Split/merge: -ds true|false (Default: false), -verify true|false (Default: true).
-  Omitted optional values use defaults. -verify false skips independent read-back.
-  -ds true is irreversible; combine with -verify false only accepting its risks.
-  Split alone accepts -encrypt true|false (Default: false), with hidden prompts.
-  Merge detects encryption automatically and restores directly beside the parts
-  unless -Output is supplied. Old unencrypted archives need no password.
-  Exit codes: 0 success, 1 operational failure, 2 usage, 3 invalid integrity.
+GET HELP
+  tqsim help split
+  tqsim merg --help
+  tqsim verify -h
+  No arguments shows this page. Help never starts an operation.
+  Named options use one dash; quote paths with spaces. true/false may
+  be quoted or unquoted; invalid values are usage errors.
+  Exit codes: 0 success, 1 operational failure, 2 usage, 3 integrity failure.

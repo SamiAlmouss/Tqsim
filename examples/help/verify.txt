@@ -1,5 +1,6 @@
 VERIFY
-  tqsim verify [-PartsPath <directory>] [-Manifest <path>]
+  tqsim verify [-PartsPath <directory>] [-Manifest <path>] [-BufferSize <bytes>]
+    [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
 
 OPTIONS
   -PartsPath    Parts directory; default is the current working directory.
@@ -16,6 +17,15 @@ INTEGRITY
   Does not reconstruct a file. Missing or corrupted required parts fail nonzero.
   Encrypted archives securely prompt for their password and authenticate the
   manifest and every GCM record. No plaintext output is created.
+  Old unencrypted archives require no password. Success means all required
+  checks passed, not future durability or proof of trusted provenance.
+  This command reads data only; it never deletes or reconstructs files.
+  Standalone verify differs from split/merge -verify true|false, which controls
+  an optional additional output read-back during those operations.
+  No -verify, -ds, -encrypt, -Output or -Overwrite option is accepted here.
+  -Manifest defaults to exactly one discovered manifest; an explicit manifest's
+  own directory determines part locations. All switches default off.
+  Help: -help, --help, -h, --h, -?, /?, /help; also verify help.
 
 EXAMPLES
   tqsim verify -PartsPath "E:\Parts"

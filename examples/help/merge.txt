@@ -1,7 +1,8 @@
 MERGE / MERG
   tqsim merge [-PartsPath <directory>] [-Manifest <path>]
               [-Output <directory>] [-Overwrite] [-ds <true|false>]
-              [-verify <true|false>]
+              [-verify <true|false>] [-BufferSize <bytes>]
+              [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
   tqsim merg is an identical alias for merge.
 
 OPTIONS
@@ -28,7 +29,8 @@ OPTIONS
 INTEGRITY
   Checks manifest metadata, ordered filenames, lengths and every SHA-256.
   Checks part and whole hashes in the single merge streaming pass.
-  Publishes the restored file only after verification succeeds.
+  Publishes after mandatory streaming integrity/authentication succeeds;
+  optional independent read-back occurs after publication, before source deletion.
   Source parts are retained unless -ds true is explicitly supplied.
   Old unencrypted archives never request a password. Encrypted schema 2 is
   automatically detected and prompts securely for the decryption password.
@@ -55,8 +57,23 @@ DELETE SOURCE WARNING
 
 EXAMPLES
   tqsim merg
+  tqsim merg -PartsPath "E:\Parts"
+  tqsim merge -PartsPath "E:\Parts"
   tqsim merge -PartsPath "E:\Parts" -Output "D:\Restored"
   tqsim merg -Manifest "E:\Parts\backup.iso.tqsim.json"
   tqsim merg -PartsPath "E:\Parts" -ds false
   tqsim merg -PartsPath "E:\Parts" -ds true
+  tqsim merg -PartsPath "E:\Parts" -verify false
   tqsim merg -PartsPath "E:\Parts" -ds true -verify false
+  tqsim merg -PartsPath "E:\EncryptedParts"
+  The last example detects encryption and asks for the password automatically.
+
+DEFAULTS AND FAILURES
+  All switches default off. -Manifest defaults to discovery of exactly one
+  manifest; -Output defaults to the selected manifest directory. Omitting an
+  optional parameter uses its default. true/false is case insensitive and may
+  be quoted or unquoted; other values are usage errors. -encrypt is split-only.
+  Password/mandatory integrity failure prevents publication and source deletion.
+  Existing output is preserved unless -Overwrite explicitly allows replacement.
+  Independent read-back failure can leave published output; sources are preserved.
+  Help aliases: -help, --help, -h, --h, -?, /?, /help; also merg help.

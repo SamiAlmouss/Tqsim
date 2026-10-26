@@ -80,10 +80,25 @@ function Resolve-TqsimInvocation([object[]]$Arguments) {
 }
 function Get-TqsimHelp([string]$Topic='') {
     $path=if ($Topic) {Join-Path $PSScriptRoot "../../examples/help/$Topic.txt"} else {Join-Path $PSScriptRoot '../../examples/help.txt'}
-    return [IO.File]::ReadAllText($path).TrimEnd("`r","`n")
+    return [IO.File]::ReadAllText($path).Replace('{{VERSION}}',(Get-TqsimVersion)).TrimEnd("`r","`n")
 }
 function Show-TqsimHelp([string]$Text,[switch]$NoColor) {
-    foreach ($line in ($Text -split '\r?\n')) {if ($line -cmatch '^[A-Z][A-Z /-]+$') {Write-TqsimStyledLine $line -Color Cyan -NoColor:$NoColor} else {Write-Output $line}}
+    $terminal=Get-TqsimTerminal
+    $width=if ($terminal.Interactive) {[math]::Max(1,$terminal.Width-1)} else {[int]::MaxValue}
+    foreach ($line in ($Text -split '\r?\n')) {
+        $heading=$line -cmatch '^[A-Z][A-Z /-]+$'
+        $remaining=$line
+        do {
+            $count=[math]::Min($width,$remaining.Length)
+            if ($remaining.Length -gt $width) {
+                $space=$remaining.LastIndexOf(' ',$count-1,$count)
+                if ($space -gt 0) {$count=$space}
+            }
+            $segment=$remaining.Substring(0,$count)
+            if ($heading) {Write-TqsimStyledLine $segment -Color Cyan -NoColor:$NoColor} else {Write-Output $segment}
+            $remaining=$remaining.Substring($count).TrimStart(' ')
+        } while ($remaining.Length)
+    }
 }
 function Invoke-TqsimDeployment([ValidateSet('update','uninstall')][string]$Command) {
     & (Join-Path $PSScriptRoot "../../$Command.ps1")

@@ -1,10 +1,15 @@
 UPDATE
   tqsim update
+    [-NoLogo] [-NoColor] [-Quiet] [-Diagnostics]
 
   Requires a managed installation. Queries the latest stable GitHub Release,
   checks its ZIP checksum, stages it and switches the selected installation.
   Preserves the prior working version on failure and never changes split data.
   Network access is required for updates; split/merge/verify work offline.
+  If latest is not newer, reports this installation is current. No separate
+  check-only flag or confirmation prompt exists. Source checkouts cannot
+  self-update. No command-specific CLI options; all switches default off.
+  Help: -help, --help, -h, --h, -?, /?, /help; also update help.
 
 OPTIONS
   -NoLogo       Hide branding.
