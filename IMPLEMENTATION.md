@@ -1,3 +1,45 @@
+# Tqsim 1.0.5 implementation and validation
+
+This release diagnoses and removes redundant data passes, adds strict optional verification, and retains the existing streaming architecture and terminal appearance. Version was promoted only after the pre-version full suites passed. No original ISO/.smm backup or other user data was used. Nothing was installed globally, committed, pushed or published.
+
+## Files and functions changed
+
+- src/Core/Tqsim.psm1: Split-Tqsim and Merge-Tqsim now accept verify=true by default and ds=false by default. Split hashes input once and optionally invokes one independent parts pass. Merge removes the pre-read pass, validates each part/whole SHA-256 while writing unpublished temporary output, checks final written length, publishes safely, and optionally reads the destination back once. Normal output omits default-false retention noise and distinguishes skipped verification. Progress remains throttled and two-line.
+- src/Core/Deletion.ps1: Resolve-TqsimVerifyOption parses only true/false strings. Add-TqsimDeletionFile records identity/length/timestamps under restrictive locks without redundant payload hashing; ReadBack is explicit. Assert-TqsimReceipt revalidates identity and metadata, and Remove-TqsimVerifiedFile no longer rehashes payload. Invoke-TqsimVerifiedSourceDeletion requires completed streaming/publication, records whether independent verification occurred, warns for fast destructive mode, keeps other targets locked until their own deletion, and retains write-ahead partial-cleanup reporting. Get-TqsimStreamDigest uses bounded 4 MiB reads instead of ComputeHash(Stream)'s small reads.
+- src/Commands/CLI.ps1: raw parser accepts verify only for split/merge/merg, validates case-insensitive true/false explicitly, preserves help ordering and all existing defaults/aliases.
+- scripts/profile-performance.ps1 and scripts/ProfileStreams.cs (new): developer-only isolated-copy phase instrumentation, measured byte/call counters, uninstrumented elapsed benchmarking, all four parameter combinations and independent harness hashes. They are excluded from application ZIPs.
+- tests/VerificationOptions.Tests.ps1 (new): ten tests cover strict defaults/parsing, exact real byte counts/no hidden passes in all four combinations, warning, default output, mandatory fast-mode integrity and direct/Windows-launcher forwarding. Existing tests remain. CLI/installer version fixtures move to 1.0.5.
+- examples/help.txt, examples/help/split.txt, examples/help/merge.txt, README.md, CHANGELOG.md, version.json, IMPLEMENTATION.md and docs/PERFORMANCE-v1.0.5.md: exact defaults, measured results, safety tradeoffs and release instructions.
+
+## Parameters and safety
+
+Omitted -ds means false; omitted -verify means true. Required File and Size are never invented. Only true/false strings, case insensitive and quoted/unquoted, are accepted; missing/empty/yes/no/1/0/arbitrary values are usage errors. Explicit false is never implicitly cast to Boolean true. All existing optional parameters retain their documented defaults.
+
+| ds | verify | Result |
+| --- | --- | --- |
+| false | true | Keep sources; one independent output pass |
+| false | false | Keep sources; no independent output pass |
+| true | true | Delete exact sources only after independent output verification |
+| true | false | Explicit fast destructive mode after mandatory streaming integrity, successful flush/close and safe publication; no hidden output pass |
+
+The fast destructive path visibly warns before cleanup, even with Quiet. It does not call streamed hashes independent verification. A successful write/flush cannot guarantee future durable storage. Every mode preserves exact byte counts, streaming part/whole hashes, manifest validation, no silent overwrite and safe publication. Deletion retains file IDs, timestamps, lengths, hard-link/reparse checks, shared-manifest refusal, protected-output locking, exact target lists and manifest-last cleanup. Pre-cleanup errors preserve sources. Multi-file cleanup is not atomic; journals retain confirmed and pending/unconfirmed states, output is preserved after partial failure, and no automatic retry is implemented. A small final close/revalidate/delete race remains; this is not a transaction against a privileged concurrent attacker. Ownership discovery is limited to manifests in the selected directory. Metadata and held handles scale with part count. Network/hardware power-loss behavior was not validated.
+
+## Measured performance
+
+Read the detailed [performance report](docs/PERFORMANCE-v1.0.5.md) in the source repository for raw evidence locations, all phase timings and limitations. Originally, deletion read seven full payload equivalents in each pipeline. The optimized design reads one input plus zero/one output pass: five redundant scans removed with verification, six in fast mode. Small manifest/journal I/O remains. Original default merge's separate preverification was removed. The FileStream API call count for a 512 MiB + 17 sample fell from over 655,000 to about 260 with verification, or 131 without, including metadata.
+
+Actual uninstrumented local 512 MiB + 17 measurements (single runs; cache/storage state not controlled): deletion+verification split 13.158 s -> 3.595 s (38.9 -> 142.4 MiB/s); merge 9.835 s -> 2.865 s (52.1 -> 178.7 MiB/s). Fast deleting split/merge measured 2.264/2.357 s. These are observed runs, not guaranteed speedups. New default retained-source split performs an additional independent pass absent from the old default, so it was slower (2.409 -> 3.636 s) as expected from the requested semantics. No larger public data buffer or parallel I/O was introduced without evidence; per-part Flush(true) remains mandatory. Profiling code never runs in normal operation.
+
+Real random 5 GiB + 17-byte integration passed all four ds/verify combinations using 1GB, 2GB and 4GB configurations, including an actual 4GB part in fast deleting mode. Every restored file was independently SHA-256 checked by the harness, regardless of application verification. Detailed elapsed/throughput values are in the performance report. No claim is made for physical 200GB/1TB tests.
+
+## Automated and release validation
+
+All 168 preceding tests are retained; ten new tests add strict verification/default and exact byte-pass checks. Full Pester 4.10.1 suites passed before version promotion; final version-matched suite results and package validation are documented with the release evidence. Regression coverage includes Int64 boundaries and old manifests, exact ASCII literals, stable colors/two-line progress, independent-verification failures, corrupt parts, cancellation, real process termination during cleanup, actual read-only partial deletion, path/identity/shared-manifest safety, native installer 5.1-to-7 handoff, checksum/ZIP validation, rollback, PATH, update/uninstall and real launcher behavior. Installer tests use local fixtures/mocked persistent PATH and network; they do not update the global app.
+
+Release files: dist/Tqsim-v1.0.5.zip and .zip.sha256. Build refuses existing archives and earlier release files are preserved. Profiling tools/test data are not packaged. Manual publication/update steps remain in README.md for SamiAlmouss/Tqsim. Live public installation is pending authorized deployment. Older implementation reports below are historical and do not describe current verification semantics.
+
+---
+
 # Tqsim 1.0.4 implementation and validation
 
 The v1.0.4 change adds strict, opt-in source deletion and stable random terminal colors, with the requested two-line progress display. Existing streaming loops, Int64 arithmetic, manifest schema 1, help aliases, collision protection, StrictMode and diagnostics are retained. Initial documentation edits and untracked v1.0.3 CLI/branding files already present in this working tree were preserved. No Git commit, push, publication, global application update or access to the user's original ISO/backup was performed.

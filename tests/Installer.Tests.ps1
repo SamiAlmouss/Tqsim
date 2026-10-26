@@ -3,7 +3,7 @@ $projectRoot=Split-Path $PSScriptRoot -Parent
 Describe 'Release installer validation' {
     It 'rejects unconfigured repository' {{Install-TqsimRelease -Repository 'USERNAME/tqsim' -InstallRoot (Join-Path $TestDrive 'app')}|Should Throw}
     It 'rejects an unowned existing directory' {$root=Join-Path $TestDrive 'unowned';$null=[IO.Directory]::CreateDirectory($root);[IO.File]::WriteAllText((Join-Path $root 'user.txt'),'preserve');{Install-TqsimRelease -Repository 'example/tqsim' -InstallRoot $root}|Should Throw;[IO.File]::ReadAllText((Join-Path $root 'user.txt'))|Should Be 'preserve'}
-    It 'creates a self-contained release and correct checksum' {$dist=Join-Path $TestDrive 'dist';& "$projectRoot/scripts/build-release.ps1" -OutputDirectory $dist;$zip=Join-Path $dist 'Tqsim-v1.0.4.zip';$expected=([IO.File]::ReadAllText("$zip.sha256") -split '\s+')[0];(Get-FileHash $zip).Hash|Should Be $expected;$a=[IO.Compression.ZipFile]::OpenRead($zip);try {@($a.Entries|Where-Object FullName -EQ 'src/Core/Tqsim.psm1').Count|Should Be 1;@($a.Entries|Where-Object FullName -like 'tests/*').Count|Should Be 0} finally {$a.Dispose()}}
+    It 'creates a self-contained release and correct checksum' {$dist=Join-Path $TestDrive 'dist';& "$projectRoot/scripts/build-release.ps1" -OutputDirectory $dist;$zip=Join-Path $dist 'Tqsim-v1.0.5.zip';$expected=([IO.File]::ReadAllText("$zip.sha256") -split '\s+')[0];(Get-FileHash $zip).Hash|Should Be $expected;$a=[IO.Compression.ZipFile]::OpenRead($zip);try {@($a.Entries|Where-Object FullName -EQ 'src/Core/Tqsim.psm1').Count|Should Be 1;@($a.Entries|Where-Object FullName -like 'tests/*').Count|Should Be 0} finally {$a.Dispose()}}
 }
 
 . "$projectRoot/uninstall.ps1"
@@ -14,9 +14,9 @@ Describe 'Offline deployment with mocked GitHub' {
         $script:fixture=Join-Path $TestDrive ([guid]::NewGuid().ToString());$null=[IO.Directory]::CreateDirectory($script:fixture)
         $script:appRoot=Join-Path $script:fixture 'app with spaces'
         $script:package= & "$projectRoot/scripts/build-release.ps1" -OutputDirectory (Join-Path $script:fixture 'release')
-        $script:release=@{draft=$false;prerelease=$false;tag_name='v1.0.4';assets=@(
-            @{name='Tqsim-v1.0.4.zip';size=(Get-Item $script:package).Length;browser_download_url='https://github.com/example/tqsim/releases/download/v1.0.4/Tqsim-v1.0.4.zip'},
-            @{name='Tqsim-v1.0.4.zip.sha256';size=(Get-Item "$script:package.sha256").Length;browser_download_url='https://github.com/example/tqsim/releases/download/v1.0.4/Tqsim-v1.0.4.zip.sha256'}
+        $script:release=@{draft=$false;prerelease=$false;tag_name='v1.0.5';assets=@(
+            @{name='Tqsim-v1.0.5.zip';size=(Get-Item $script:package).Length;browser_download_url='https://github.com/example/tqsim/releases/download/v1.0.5/Tqsim-v1.0.5.zip'},
+            @{name='Tqsim-v1.0.5.zip.sha256';size=(Get-Item "$script:package.sha256").Length;browser_download_url='https://github.com/example/tqsim/releases/download/v1.0.5/Tqsim-v1.0.5.zip.sha256'}
         )}
         $script:userPath='C:\OtherApp'
         Mock Get-TqsimUserPath {$script:userPath}
@@ -29,9 +29,9 @@ Describe 'Offline deployment with mocked GitHub' {
     It 'installs without admin-only paths and creates a working launcher' {
         Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot
         $marker=Get-Content (Join-Path $script:appRoot '.tqsim-install.json') -Raw|ConvertFrom-Json
-        $marker.version|Should Be '1.0.4';$script:userPath|Should Match 'OtherApp;.*app with spaces'
+        $marker.version|Should Be '1.0.5';$script:userPath|Should Match 'OtherApp;.*app with spaces'
         $result=& (Join-Path $script:appRoot 'bin/tqsim.cmd') version -NoLogo
-        $LASTEXITCODE|Should Be 0;$result|Should Be '1.0.4'
+        $LASTEXITCODE|Should Be 0;$result|Should Be '1.0.5'
     }
     It 'reinstalls with no duplicate PATH entry and preserves user files' {
         Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot
@@ -45,20 +45,20 @@ Describe 'Offline deployment with mocked GitHub' {
     It 'rejects a missing asset' {$script:release.assets=@();{Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw}
     It 'reports network failure without changing PATH' {Mock Invoke-RestMethod {throw 'Offline'};{Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw;$script:userPath|Should Be 'C:\OtherApp'}
     It 'rejects a bad checksum' {
-        [IO.File]::WriteAllText("$script:package.sha256",('0'*64)+'  Tqsim-v1.0.4.zip'+"`n")
+        [IO.File]::WriteAllText("$script:package.sha256",('0'*64)+'  Tqsim-v1.0.5.zip'+"`n")
         $script:release.assets[1].size=(Get-Item "$script:package.sha256").Length
         {Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw
     }
     It 'rejects a broken ZIP with valid checksum' {
         [IO.File]::WriteAllText($script:package,'not a ZIP')
-        [IO.File]::WriteAllText("$script:package.sha256",(Get-FileHash $script:package).Hash+'  Tqsim-v1.0.4.zip'+"`n")
+        [IO.File]::WriteAllText("$script:package.sha256",(Get-FileHash $script:package).Hash+'  Tqsim-v1.0.5.zip'+"`n")
         $script:release.assets[0].size=(Get-Item $script:package).Length;$script:release.assets[1].size=(Get-Item "$script:package.sha256").Length
         {Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw
     }
     It 'rejects ZIP traversal even with a valid checksum' {
         $a=[IO.Compression.ZipFile]::Open($script:package,[IO.Compression.ZipArchiveMode]::Update)
         try {$e=$a.CreateEntry('../outside.txt');$s=[IO.StreamWriter]::new($e.Open());$s.Write('unsafe');$s.Dispose()} finally {$a.Dispose()}
-        [IO.File]::WriteAllText("$script:package.sha256",(Get-FileHash $script:package).Hash+'  Tqsim-v1.0.4.zip'+"`n")
+        [IO.File]::WriteAllText("$script:package.sha256",(Get-FileHash $script:package).Hash+'  Tqsim-v1.0.5.zip'+"`n")
         $script:release.assets[0].size=(Get-Item $script:package).Length;$script:release.assets[1].size=(Get-Item "$script:package.sha256").Length
         {Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw
         (Test-Path (Join-Path $script:fixture 'outside.txt'))|Should Be $false
@@ -69,13 +69,13 @@ Describe 'Offline deployment with mocked GitHub' {
         Mock Invoke-WebRequest {throw 'Disconnected'}
         {Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw
         [IO.File]::ReadAllText($marker)|Should Be $before
-        (& (Join-Path $script:appRoot 'bin/tqsim.cmd') version -NoLogo)|Should Be '1.0.4'
+        (& (Join-Path $script:appRoot 'bin/tqsim.cmd') version -NoLogo)|Should Be '1.0.5'
     }
     It 'updates an older selected installation through the supported command' {
         Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot
         $marker=Join-Path $script:appRoot '.tqsim-install.json';$m=Get-Content $marker -Raw|ConvertFrom-Json;$m.version='1.0.2';[IO.File]::WriteAllText($marker,($m|ConvertTo-Json))
         Update-Tqsim -InstallRoot $script:appRoot
-        (Get-Content $marker -Raw|ConvertFrom-Json).version|Should Be '1.0.4'
+        (Get-Content $marker -Raw|ConvertFrom-Json).version|Should Be '1.0.5'
     }
     It 'does not download an already current version' {
         Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot
@@ -89,7 +89,7 @@ Describe 'Offline deployment with mocked GitHub' {
         Mock Set-TqsimUserPath {param($Value)$script:pathCalls++;if ($script:pathCalls -eq 1) {throw 'PATH denied'};$script:userPath=$Value}
         {Install-TqsimRelease -Repository example/tqsim -InstallRoot $script:appRoot}|Should Throw
         [IO.File]::ReadAllText($marker)|Should Be $before
-        (& (Join-Path $script:appRoot 'bin/tqsim.cmd') version -NoLogo)|Should Be '1.0.4'
+        (& (Join-Path $script:appRoot 'bin/tqsim.cmd') version -NoLogo)|Should Be '1.0.5'
     }
     It 'can retry a clean installation after a late PATH failure' {
         $script:pathCalls=0

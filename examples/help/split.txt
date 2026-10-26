@@ -1,11 +1,16 @@
 SPLIT
-  tqsim split -File <source> -Size <size> [-Output <directory>] [-ds <true|false>]
+  tqsim split -File <source> -Size <size> [-Output <directory>]
+              [-ds <true|false>] [-verify <true|false>]
 
 OPTIONS
   -File         Original binary file; retained unless -ds true is explicit.
   -ds           true or false (case insensitive). Default: false, keep source.
-                true deletes the original only after independently re-reading
-                and verifying all published parts, manifest and original hash.
+                true deletes only after required streaming/publication checks
+                and independent verification when enabled.
+  -verify       true or false (case insensitive). Default: true.
+                true reads back the split set once; false skips this extra pass.
+                Streaming SHA-256, byte counts, safe publication and deletion
+                identity checks remain mandatory. Omitted options use defaults.
   -Size         Positive integer bytes or B, KB/KiB, MB/MiB, GB/GiB, TB/TiB.
   -Output       Destination directory; defaults to Output beside the source.
   -BufferSize   Bounded I/O buffer in bytes, 4096..67108864 (default 4194304).
@@ -27,6 +32,9 @@ DELETE SOURCE WARNING
   and does not guarantee future storage durability. Extra verification I/O
   and locks are required. Unsafe links/identities cause deletion to fail closed.
   Cleanup journals are retained for auditing; no automatic cleanup retry.
+  -ds true -verify false is an explicit fast mode with less integrity assurance:
+  no independent output read-back occurs. Successful writes and flush do not
+  guarantee durable storage under every device or power-failure condition.
 
 EXAMPLES
   tqsim split -File "D:\backup.iso" -Size 500MB
@@ -35,6 +43,7 @@ EXAMPLES
   tqsim split -File "D:\backup.iso" -Size 4GB -NoLogo
   tqsim split -File "D:\backup.iso" -Size 2GB -ds false
   tqsim split -File "D:\backup.iso" -Size 2GB -ds true
+  tqsim split -File "D:\backup.iso" -Size 2GB -ds true -verify false
 
 HELP
   tqsim help split

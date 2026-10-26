@@ -1,6 +1,7 @@
 MERGE / MERG
   tqsim merge [-PartsPath <directory>] [-Manifest <path>]
               [-Output <directory>] [-Overwrite] [-ds <true|false>]
+              [-verify <true|false>]
   tqsim merg is an identical alias for merge.
 
 OPTIONS
@@ -11,8 +12,12 @@ OPTIONS
   -Overwrite    Explicit authorization to replace an existing restored file.
   -ds           true or false (case insensitive). Default: false, keep sources.
                 true deletes only the selected manifest's ordered input parts
-                and its manifest, after re-reading the published output and
-                verifying its exact length and SHA-256. Manifest is deleted last.
+                and its manifest after mandatory streaming checks and independent
+                verification when enabled. Manifest is deleted last.
+  -verify       true or false (case insensitive). Default: true.
+                true independently reads the published output once for SHA-256
+                and length; false skips that extra pass, keeping all mandatory
+                streaming part/whole SHA-256, lengths and publication checks.
   -BufferSize   I/O buffer bytes, 4096..67108864; default 4194304.
   -NoLogo       Hide branding.
   -Quiet        Suppress routine output and progress; retain errors.
@@ -21,7 +26,7 @@ OPTIONS
 
 INTEGRITY
   Checks manifest metadata, ordered filenames, lengths and every SHA-256.
-  Checks hashes again while writing and checks the complete restored hash.
+  Checks part and whole hashes in the single merge streaming pass.
   Publishes the restored file only after verification succeeds.
   Source parts are retained unless -ds true is explicitly supplied.
 
@@ -33,6 +38,8 @@ DELETE SOURCE WARNING
   deleted: the verified output and cleanup journal remain. Errors report
   deleted and remaining/unconfirmed counts and return nonzero. Journals do
   not authorize retries: inspect them and the verified output manually.
+  -ds true -verify false skips independent read-back and has less assurance.
+  Flush/successful writes do not guarantee storage durability after power loss.
 
 EXAMPLES
   tqsim merg
@@ -40,3 +47,4 @@ EXAMPLES
   tqsim merg -Manifest "E:\Parts\backup.iso.tqsim.json"
   tqsim merg -PartsPath "E:\Parts" -ds false
   tqsim merg -PartsPath "E:\Parts" -ds true
+  tqsim merg -PartsPath "E:\Parts" -ds true -verify false

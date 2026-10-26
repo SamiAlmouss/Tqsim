@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.5 — 2026-10-26
+
+- Add split/merge/merg -verify true|false, default true; retain -ds default false. Reject invalid Boolean strings without implicit truthiness. Omitted options use their established defaults.
+- Replace repeated deletion-related payload scans with captured Windows identities, lengths, timestamps and restrictive locks. Keep each target locked until its own deletion boundary. Preserve reparse/hard-link/shared-manifest checks, safe publication and write-ahead cleanup journals.
+- Split reads input once; merge validates parts and whole SHA-256 in its single writing pass without a separate preverification pass. Verify=true adds exactly one independent output read; verify=false skips it even when deletion is requested and displays the irreversible-deletion warning.
+- Replace 4 KiB ComputeHash reads with bounded 4 MiB read-back hashing. Retain per-part durable flushes, Int64 arithmetic, existing buffer default and throttled two-line UI.
+- Remove routine default-false retention messages; keep destructive-action results, failures and accurate verification-skipped status. Add actual stream-byte-count tests and developer-only profiling/benchmark tools excluded from release packages.
+
 ## 1.0.4 — 2026-10-26
 
 - Add strict split/merge/merg `-ds true|false`, default false. Explicit true independently verifies published data and source identities before deleting exact source files; merge removes its manifest last and refuses shared/ambiguous parts.

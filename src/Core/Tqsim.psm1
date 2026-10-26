@@ -91,7 +91,8 @@ function Show-TqsimProgress($State,[long]$Done,[long]$Total,[long]$Part,[long]$C
     Write-TqsimProgressFrame $render $metrics.Percent $status
 }
 function Split-Tqsim {
-    param([string]$File,[string]$Size,[string]$Output,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false')
+    param([string]$File,[string]$Size,[string]$Output,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false',[string]$verify='true')
+    $readBack=Resolve-TqsimVerifyOption $verify
     $deleteSource=Resolve-TqsimDeleteSourceOption $ds;$cleanup=New-TqsimDeletionContext
     if (!$Quiet -and ![Console]::IsOutputRedirected -and $null -eq (Get-Variable TqsimRenderState -ValueOnly -ErrorAction SilentlyContinue)) {$TqsimRenderState=New-TqsimRenderState -SkipLogo}
     [long]$chunk=ConvertTo-TqsimSize $Size; $source=[IO.Path]::GetFullPath($File); Assert-TqsimRegular $source
@@ -113,28 +114,35 @@ function Split-Tqsim {
                 $read=$inputStream.Read($buffer,0,(Get-TqsimReadCount $buffer.Length ([long]($target-$written)))); if (!$read) {throw 'Unexpected EOF.'}
                 $stream.Write($buffer,0,$read); $hash.AppendData($buffer,0,$read); $whole.AppendData($buffer,0,$read); $written+=$read; $done+=$read
                 if ($clock.ElapsedMilliseconds-$tick -ge 250) {Show-TqsimProgress SPLITTING $done $length $i $count $clock -Quiet:$Quiet; $tick=$clock.ElapsedMilliseconds}
-            }; $stream.Flush($true); $digest=ConvertTo-TqsimHex ($hash.GetHashAndReset()) } finally {$stream.Dispose();$hash.Dispose()}
+            }; $stream.Flush($true); $digest=ConvertTo-TqsimHex ($hash.GetHashAndReset());$partIdentity=if ($deleteSource) {Get-TqsimFileIdentity $stream} else {''} } finally {$stream.Dispose();$hash.Dispose()}
             if ((Get-Item -LiteralPath $temp).Length -ne $target) {throw 'Part length mismatch.'}
             [IO.File]::Move($temp,$final); $owned.Add($final); $parts.Add(@{index=$i;fileName=$partName;size=$written;sha256=$digest})
+            if ($deleteSource) {$null=Add-TqsimDeletionFile $cleanup $final $digest $written -ExpectedIdentity $partIdentity}
         }
         if ($inputStream.Length -ne $length -or [IO.File]::GetLastWriteTimeUtc($source) -ne $stamp -or $inputStream.ReadByte() -ne -1) {throw 'Source changed during split.'}
         $m=[ordered]@{application='Tqsim';applicationVersion=(Get-TqsimVersion);manifestVersion=1;operationId=[guid]::NewGuid().ToString();originalFileName=$name;originalSize=$length;partSize=$chunk;totalParts=$count;hashAlgorithm='SHA256';originalSHA256=(ConvertTo-TqsimHex ($whole.GetHashAndReset()));createdUtc=[datetime]::UtcNow.ToString('o');parts=@($parts.ToArray())}
         $manifestJson=$m|ConvertTo-Json -Depth 8
-        $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$owned.Add($temp);[IO.File]::WriteAllText($temp,$manifestJson);[IO.File]::Move($temp,$manifestPath);$success=$true
-        $deletionResult='Source retained (Delete Source: false).'
+        $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$owned.Add($temp)
+        $manifestStream=New-TqsimStream $temp CreateNew Write
+        try {$jsonBytes=[Text.Encoding]::UTF8.GetBytes($manifestJson);$manifestStream.Write($jsonBytes,0,$jsonBytes.Length);$manifestStream.Flush($true);$manifestIdentity=if ($deleteSource) {Get-TqsimFileIdentity $manifestStream} else {''}} finally {$manifestStream.Dispose()}
+        [IO.File]::Move($temp,$manifestPath);$success=$true
+        $deletionResult=''
         if ($deleteSource) {
-            $expectedManifest=ConvertTo-TqsimHex ([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($manifestJson)))
-            $null=Add-TqsimDeletionFile $cleanup $manifestPath $expectedManifest
-            $published=Read-TqsimManifest $manifestPath
-            if ($sourceEntry.SHA256 -ine $m.originalSHA256 -or $sourceEntry.Length -ne $m.originalSize) {throw [IO.InvalidDataException]::new('Source changed during split; source retained.')}
-            foreach ($part in $m.parts) {$null=Add-TqsimDeletionFile $cleanup (Join-Path $dest $part.fileName) $part.sha256 $part.size}
-            Invoke-TqsimParts $published $dest -Quiet:$Quiet -BufferSize $BufferSize
+            $sourceEntry.SHA256=$m.originalSHA256
+            $expectedManifest=ConvertTo-TqsimHex ([Security.Cryptography.SHA256]::HashData($jsonBytes))
+            $null=Add-TqsimDeletionFile $cleanup $manifestPath $expectedManifest -ReadBack -ExpectedIdentity $manifestIdentity -Quiet:$Quiet
+        }
+        $null=Read-TqsimManifest $manifestPath
+        if ([IO.File]::ReadAllText($manifestPath) -cne $manifestJson) {throw [IO.InvalidDataException]::new('Published manifest changed.')}
+        if ($readBack) {Invoke-TqsimParts $m $dest -Quiet:$Quiet -BufferSize $BufferSize}
+        if ($deleteSource) {
+            $cleanup.StreamingComplete=$true;$cleanup.ReadBackVerified=$readBack
             $inputStream.Dispose()
             $deletionResult=Invoke-TqsimVerifiedSourceDeletion $cleanup $dest SPLIT
         }
         Show-TqsimProgress COMPLETED $length $length $count $count $clock -Quiet:$Quiet
         Complete-TqsimProgress
-        if (!$Quiet) {Write-Output "COMPLETED: $count parts, $length bytes; $manifestPath";Write-Output $deletionResult}
+        if (!$Quiet) {Write-Output "COMPLETED: $count parts, $length bytes; $manifestPath";if (!$readBack) {Write-Output 'Independent verification skipped.'};if ($deletionResult) {Write-Output $deletionResult}}
     } finally { $inputStream.Dispose();$whole.Dispose();Close-TqsimDeletionContext $cleanup; Complete-TqsimProgress; if (!$success) {foreach ($path in $owned) {if ([IO.File]::Exists($path)) {[IO.File]::Delete($path)}}} }
 }
 function Invoke-TqsimParts {
@@ -158,13 +166,14 @@ function Test-Tqsim {
     if (!$Quiet) {Write-Output "COMPLETED: verified $($m.totalParts) parts and original SHA256."}
 }
 function Merge-Tqsim {
-    param([string]$PartsPath='.',[string]$Manifest,[string]$Output,[switch]$Overwrite,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false')
+    param([string]$PartsPath='.',[string]$Manifest,[string]$Output,[switch]$Overwrite,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false',[string]$verify='true')
+    $readBack=Resolve-TqsimVerifyOption $verify
     $deleteSource=Resolve-TqsimDeleteSourceOption $ds;$cleanup=New-TqsimDeletionContext
     if (!$Quiet -and ![Console]::IsOutputRedirected -and $null -eq (Get-Variable TqsimRenderState -ValueOnly -ErrorAction SilentlyContinue)) {$TqsimRenderState=New-TqsimRenderState -SkipLogo}
     $operationClock=[Diagnostics.Stopwatch]::StartNew()
     try {
     $path=Find-TqsimManifest $PartsPath $Manifest
-    if ($deleteSource) {$manifestEntry=Add-TqsimDeletionFile $cleanup $path -Target}
+    if ($deleteSource) {$manifestEntry=Add-TqsimDeletionFile $cleanup $path -Target -ReadBack -Quiet:$Quiet}
     $m=Read-TqsimManifest $path;$directory=[IO.Path]::GetDirectoryName($path)
     if ($deleteSource) {
         Assert-TqsimUnsharedParts $path $m
@@ -175,19 +184,22 @@ function Merge-Tqsim {
     if ($final -ieq $path -or @($m.parts|Where-Object {(Join-Path $directory $_.fileName) -ieq $final}).Count) {throw 'Output collides with input.'}
     if ((Test-Path -LiteralPath $final) -and !$Overwrite) {throw 'Output exists; use -Overwrite to authorize replacement.'}
     if (Test-Path -LiteralPath $final) {Assert-TqsimRegular $final}
-    Invoke-TqsimParts $m $directory -Quiet:$Quiet -BufferSize $BufferSize
     $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$s=$null
-    try {$s=New-TqsimStream $temp CreateNew Write;Invoke-TqsimParts $m $directory $s -Quiet:$Quiet -BufferSize $BufferSize -State MERGING;$s.Flush($true);$s.Dispose();$s=$null
+    try {$s=New-TqsimStream $temp CreateNew Write;Invoke-TqsimParts $m $directory $s -Quiet:$Quiet -BufferSize $BufferSize -State MERGING;$s.Flush($true);if ($s.Length -ne $m.originalSize) {throw [IO.InvalidDataException]::new('Written output length mismatch.')};$outputIdentity=if ($deleteSource) {Get-TqsimFileIdentity $s} else {''};$s.Dispose();$s=$null
         if ([IO.File]::Exists($final) -and $Overwrite) {[IO.File]::Replace($temp,$final,[System.Management.Automation.Language.NullString]::Value)} else {[IO.File]::Move($temp,$final)}
-        $deletionResult='Source retained (Delete Source: false).'
+        $deletionResult=''
         if ($deleteSource) {
-            $null=Add-TqsimDeletionFile $cleanup $final $m.originalSHA256 $m.originalSize
+            $null=Add-TqsimDeletionFile $cleanup $final $m.originalSHA256 $m.originalSize -ReadBack:$readBack -ExpectedIdentity $outputIdentity -Quiet:$Quiet
             Assert-TqsimUnsharedParts $path $m
+            $cleanup.StreamingComplete=$true;$cleanup.ReadBackVerified=$readBack
             $deletionResult=Invoke-TqsimVerifiedSourceDeletion $cleanup $dest MERGE
+        } elseif ($readBack) {
+            Assert-TqsimRegular $final;$verifyStream=New-TqsimStream $final Open Read
+            try {if ($verifyStream.Length -ne $m.originalSize -or (Get-TqsimStreamDigest $verifyStream -ShowProgress -Quiet:$Quiet) -ine $m.originalSHA256) {throw [IO.InvalidDataException]::new('Independent published output verification failed.')}} finally {$verifyStream.Dispose()}
         }
         Show-TqsimProgress COMPLETED $m.originalSize $m.originalSize $m.totalParts $m.totalParts $operationClock -Quiet:$Quiet
         Complete-TqsimProgress
-        if (!$Quiet) {Write-Output "COMPLETED: restored $($m.originalSize) bytes to $final";Write-Output $deletionResult}
+        if (!$Quiet) {Write-Output "COMPLETED: restored $($m.originalSize) bytes to $final";if (!$readBack) {Write-Output 'Independent verification skipped.'};if ($deletionResult) {Write-Output $deletionResult}}
     } finally {if ($s) {$s.Dispose()};if ([IO.File]::Exists($temp)) {[IO.File]::Delete($temp)}}
     } finally {Close-TqsimDeletionContext $cleanup;Complete-TqsimProgress}
 }

@@ -25,7 +25,7 @@ function Resolve-TqsimInvocation([object[]]$Arguments) {
     $helpAliases=@('-help','--help','-h','--h','-?','/?','/help')
     $versionAliases=@('-version','--version','-v')
     $switches=@('overwrite','nologo','quiet','diagnostics','nocolor')
-    $values=@('file','size','output','partspath','manifest','buffersize','ds')
+    $values=@('file','size','output','partspath','manifest','buffersize','ds','verify')
     $options=@{};$positionals=[Collections.Generic.List[string]]::new();$help=$false;$version=$false
     for ($i=0;$i -lt $Arguments.Count;$i++) {
         $token=[string]$Arguments[$i];$lower=$token.ToLowerInvariant()
@@ -68,12 +68,13 @@ function Resolve-TqsimInvocation([object[]]$Arguments) {
     if ($topic -and $topic -notin $commands) {throw [ArgumentException]::new("Unknown help topic '$topic'.")}
     if ($topic -eq 'merg') {$topic='merge'};if ($command -eq 'merg') {$command='merge'}
     $globals=@('nologo','quiet','diagnostics','nocolor')
-    $allowed=switch ($command) {split {@('file','size','output','buffersize','ds')} merge {@('partspath','manifest','output','overwrite','buffersize','ds')} verify {@('partspath','manifest','buffersize')} info {@('manifest','partspath')} help {@($values+$switches)} default {@()}}
+    $allowed=switch ($command) {split {@('file','size','output','buffersize','ds','verify')} merge {@('partspath','manifest','output','overwrite','buffersize','ds','verify')} verify {@('partspath','manifest','buffersize')} info {@('manifest','partspath')} help {@($values+$switches)} default {@()}}
     foreach ($name in $options.Keys) {if ($name -notin ($globals+$allowed)) {throw [ArgumentException]::new("-$name is not supported by $command.")}}
     if ($command -ne 'help' -and $options.ContainsKey('buffersize')) {
         $buffer=0;if (![int]::TryParse([string]$options.buffersize,[ref]$buffer) -or $buffer -lt 4096 -or $buffer -gt 67108864) {throw [ArgumentException]::new('BufferSize must be 4096..67108864 bytes.')};$options.buffersize=$buffer
     }
     if ($command -ne 'help' -and $options.ContainsKey('ds')) {$null=Resolve-TqsimDeleteSourceOption $options.ds}
+    if ($command -ne 'help' -and $options.ContainsKey('verify')) {$null=Resolve-TqsimVerifyOption $options.verify}
     return [pscustomobject]@{Command=$command;Topic=$topic;Options=$options}
 }
 function Get-TqsimHelp([string]$Topic='') {
