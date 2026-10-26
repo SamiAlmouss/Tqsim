@@ -1,9 +1,39 @@
-Tqsim — Split • Merge • Verify
-tqsim split -File <path> -Size <bytes|500MB|2GB|1024MiB> [-Output <directory>]
-tqsim merg|merge [-PartsPath <directory>] [-Manifest <path>] [-Output <directory>] [-Overwrite]
-tqsim verify [-PartsPath <directory>] [-Manifest <path>]
-tqsim info -Manifest <path>
-tqsim help|version|update|uninstall
-All commands: -NoLogo -Quiet -Diagnostics. Streaming commands: -BufferSize <4096..67108864>.
-Diagnostics adds exception type, source line, ScriptStackTrace and inner exceptions to errors.
-Exit codes: 0 success; 1 I/O, deployment or operational failure; 2 usage; 3 invalid manifest/integrity.
+USAGE
+  tqsim <command> [options]
+
+COMMANDS
+  split       Split a binary file into smaller parts
+  merg        Reassemble a file from its parts
+  merge       Alias for merg
+  verify      Verify parts and original SHA-256
+  info        Display manifest metadata without verifying parts
+  update      Update a managed installation from GitHub Releases
+  uninstall   Remove owned application files and its PATH entry
+  version     Display the installed application version
+  help        Display main or command-specific help
+
+GLOBAL OPTIONS
+  -h, --help          Help (also help, -help, --h, -?, /?, /help)
+  -v, --version       Version (also version, -version; case insensitive)
+  -NoLogo             Hide all branding
+  -Quiet              Suppress routine output and progress; errors remain
+  -Diagnostics        Exception type, exact source line, stack and inner errors
+  -NoColor            Disable Tqsim text colors (also NO_COLOR)
+
+EXAMPLES
+  tqsim split -File "D:\backup.iso" -Size 2GB
+  tqsim split -File "D:\backup.iso" -Size 500MB
+  tqsim merg -PartsPath "D:\Parts"
+  tqsim verify -PartsPath "D:\Parts"
+
+COMMAND HELP
+  tqsim help <command>
+  tqsim <command> --help
+  tqsim split -h
+
+NOTES
+  No arguments displays this help. Help never starts file operations.
+  Options are case insensitive; named file options use a single dash.
+  Quote paths with spaces/Unicode. Use .\ before names starting with a dash.
+  Decimal 1GB = 1,000,000,000 bytes; Tqsim 1GB = 1GiB = 1,073,741,824 bytes.
+  Exit codes: 0 success, 1 operational failure, 2 usage, 3 invalid integrity.

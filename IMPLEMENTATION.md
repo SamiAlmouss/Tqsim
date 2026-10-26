@@ -1,121 +1,117 @@
-# Tqsim 1.0.2 — split runtime fix and validation report
+# Tqsim 1.0.3 implementation report
 
-## Exact reproduced defect
+## Upgrade scope and modified files
 
-The original v1.0.1 release was extracted into a disposable workspace directory. Running its split operation under the user's installed **PowerShell 7.6.8**, with a real terminal and a freshly generated **5,368,709,137-byte (5 GiB + 17)** random file, reproduced the exact reported exception:
+Started from the clean v1.0.2 checkout on main at commit `fd87731` (`Release Tqsim v1.0.2 - Fix interactive progress`). This is an incremental CLI/help/branding upgrade. The binary streaming loops, safe part publication, merge verification and cleanup behavior were preserved. The real global installation and user ISO/backup data were not accessed or modified. No commit, push, or GitHub publication was performed.
 
-```text
-System.Management.Automation.PropertyNotFoundException
-The property '1' cannot be found on this object. Verify that the property exists.
-at Show-TqsimProgress, src/Core/Tqsim.psm1: line 86
-at Split-Tqsim, src/Core/Tqsim.psm1: line 109
-```
+| Files | Change |
+| --- | --- |
+| tqsim.ps1 | Raw argument entry point, shared normalization/dispatch, retained diagnostics and exit codes |
+| src/Commands/CLI.ps1 | Argument validation, case-insensitive aliases, safe help routing, suggestions, version metadata reader and dispatch |
+| src/Console/Branding.ps1 | Exactly three literal logos, cryptographic selection, per-invocation layout, styling and resize reflow |
+| src/Core/Tqsim.psm1 | Load the helpers, consult invocation branding state during progress, read applicationVersion from metadata; processing engine unchanged |
+| examples/help.txt; examples/help/*.txt | Full main help and split/merge/verify/info/update/uninstall/version/help topics |
+| version.json | Authoritative version 1.0.3 |
+| install.ps1; uninstall.ps1; scripts/build-release.ps1 | Include, validate and clean only owned new helper/help files |
+| tests/CLICompatibility.Tests.ps1; tests/Logos.Tests.ps1; tests/fixtures/logos/*.txt | Alias/help-safety, literal/selection/layout/resize and suppression regressions |
+| tests/CLI.Tests.ps1; tests/Installer.Tests.ps1 | Version expectations, real launcher aliases and existing Unicode argument forwarding |
+| .gitattributes | Preserve logo fixture LF endings and intentional trailing spaces |
+| README.md; CHANGELOG.md; IMPLEMENTATION.md | Supported syntax, terminal behavior, tests, limitations and release instructions |
 
-The original failing source line was:
+## Actual CLI syntax
 
-```powershell
-$seconds=[math]::Max([double].001,[double]$Clock.Elapsed.TotalSeconds); $rate=$Done/$seconds
-```
+All names/aliases are case insensitive:
 
-`[double].001` is parsed as member/property access on the Double type, not a cast of the decimal constant. Under StrictMode it requests a nonexistent numeric property `1`. The correct expression is **`[double]0.001`**. This malformed expression was introduced in the v1.0.1 progress arithmetic change.
+- Main help: no arguments, `help`, `-help`, `--help`, `-h`, `--h`, `-?`, `/?`, `/help` (including `-Help` and `--HELP`).
+- Command help: `help split`, `split help`, `split -help`, `split --help`, `split -h`, `split /?`. Substitute merge/merg, verify, info, update, uninstall or version. `help help` describes help itself.
+- Version: `version`, `-version`, `--version`, `-v`, `-V`. `-NoLogo` preserves the machine-friendly single version line.
+- Existing operations: `split -File <path> -Size <size> [-Output <directory>]`; `merge|merg [-PartsPath <directory>] [-Manifest <path>] [-Output <directory>] [-Overwrite]`; `verify [-PartsPath <directory>] [-Manifest <path>]`; `info -Manifest <path>` or manifest discovery via PartsPath.
+- Global controls: `-NoLogo`, `-Quiet`, `-Diagnostics`, `-NoColor`. Streaming commands retain `-BufferSize` (4096..67108864 bytes).
 
-This was **not** a regex-group, array-index, manifest dictionary, or Int64 streaming failure. The size parser remains unchanged. Small files can finish before the first progress update. Quiet/redirected runs skip Show-TqsimProgress entirely, so previous binary/large-file tests did not exercise the failing path. The baseline reproduction used interactive output specifically to expose it.
+Help dispatch precedes mandatory file/size and buffer-value validation and cannot execute split/merge/verify/info/update/uninstall. Recognized options with unsupported values can still be explained by help; unsupported or duplicate argument names remain usage errors. Unknown commands suggest only reasonably clear corrections, such as splitt → split, merger → merge and verfiy → verify. No argument text is evaluated or passed to Invoke-Expression.
 
-The reproduced original module SHA-256 is `DD9CDF1681C1ADE39ACEF5D23BAE0828EFED4DB2C7139A962520BD703BD9784E`. The saved exception record is `.test-work/runtime768-60153957-242e-4e8b-91cb-eb15b0451281/baseline-failure.json`.
+The version command, banner and generated manifest applicationVersion all read version.json. Manifest schema remains version 1. Exit codes remain 0 success, 1 operational error, 2 usage/unknown arguments, and 3 invalid manifest/integrity. Developer diagnostics retain exception type, exact source line, ScriptStackTrace and inner exceptions; normal failures remain readable.
 
-## Focused correction
+## PowerShell and launcher compatibility
 
-- Use `[double]0.001` in progress arithmetic. The calculation is shared through Get-TqsimProgressMetrics, which is tested directly even on headless CI. Interactive rendering uses those same metrics.
-- Preserve StrictMode, validation, 4 MiB binary buffers, Int64 file/part/remaining-byte counters and the v1.0.1 Int64 Min operands. Only bounded FileStream read counts are Int32. No entire chunk/file is loaded into RAM.
-- Add optional CLI **-Diagnostics**. Errors still start with a readable FAILED message; diagnostics add exception type, source script, exact line number, source text, ScriptStackTrace and inner exceptions to stderr. Existing exit codes remain unchanged.
-- Preserve the inner exception when manifest validation wraps a failure, so diagnostic output retains the original cause.
-- Keep collision checks and unique staging names. Existing incomplete part names cause a safe failure; unrelated old temporary files are preserved.
-- Set CLI version, banner, application manifest metadata and version.json to **1.0.2**. Manifest schema remains version 1 and old manifests remain compatible.
+The root script deliberately has no advanced-script param binder, allowing the app to see reserved-looking help tokens before any file parameter validation. The raw tokens are normalized centrally. Existing full named options, quoted paths with spaces/Unicode, colon-attached option values and explicit Boolean switch values such as `-Quiet:$false` are supported. Named options use a single dash and their full names. Prefix abbreviations, GNU `--file`, and arbitrary PowerShell common parameters are intentionally rejected with code 2.
 
-## Complete automated test results
+The global `.cmd` launcher and its dispatcher remain unchanged. Every listed global help/version alias, including `-?` and `/?`, was actually exercised through that launcher in temporary managed installations. Put app options after `pwsh -NoProfile -File ./tqsim.ps1`; a `pwsh -?` option before the script asks the runtime for its own help. Do not dot-source the CLI entry point; use the script or installed command normally.
 
-| Runtime | Tests passed | Failed | Skipped |
+## Three-logo engine
+
+Exactly three predefined logos are registered: original five-line design, wide eight-line design, and seven-line block design ending with the colon. Each source literal was checked against fixtures extracted directly from the user's brief. Leading/trailing spaces, slashes, punctuation and line alignment match exactly. The compact TQSIM label is a responsive fallback, not a fourth randomized logo.
+
+One `RandomNumberGenerator.GetInt32(0,3)` selection occurs when an invocation first enables branding. The render state is a local object owned by that dispatch call, not a mutable global/module selection. Repeated invocations can randomly choose the same design. Progress and resize reuse the same LogoIndex; suppressed branding does not request a random choice.
+
+Horizontal padding is `max(0, floor((terminalWidth - widestLogoLine) / 2))`; each individual literal line retains its internal whitespace. Tagline, version and the secure-operation label are centered separately. Vertical spacing accounts for the actual logo height and the help/body/dashboard allocation. No terminal background is changed and no screen clearing is used.
+
+An interactive window narrower than the selected design uses TQSIM. Active-operation dimension changes reflow that same selection and restore the full design when it fits. Reflow prints a fresh block on dimension changes rather than clearing/repositioning the screen. Completed static help output has no background resize listener. Terminal-dimension calls fall back safely to 80 by 25 if unavailable.
+
+The themes use green/cyan/red, with RGB 63EDC6/53DCEB/EF5965 on recognized true-color virtual terminals and ConsoleColor fallbacks elsewhere. `-NoColor` and NO_COLOR suppress Tqsim text styling; native PowerShell progress may still use its host's colors. `-NoLogo` removes all branding and selection. Quiet also suppresses routine progress but explicit help/version/info output remains useful. Redirected output has plain logo/text lines without ANSI, artificial centering, animation or redraw codes. No animation exists, so no NoAnimation option is advertised.
+
+## Tests actually executed
+
+Pester 4.10.1 full suites:
+
+| Runtime | Passed | Failed | Skipped |
 | --- | ---: | ---: | ---: |
-| PowerShell 7.6.8 (user's Windows Store runtime) | 88 | 0 | 0 |
-| PowerShell 7.6.5 (bundled execution runtime) | 88 | 0 | 0 |
+| PowerShell 7.6.8 (Windows Store runtime) | 121 | 0 | 0 |
+| PowerShell 7.6.5 (bundled runtime) | 121 | 0 | 0 |
 
-Pester 4.10.1 was used. The 7.6.8 run also put that runtime first on its process PATH so child CLI and Windows launcher tests ran on 7.6.8. Real user PATH changes and GitHub downloads are mocked in installer tests.
+The original 88 processing/diagnostics tests were retained. New tests cover all global help/version forms, command-topic normalization and real screen output, side-effect-free help dispatch, typo suggestions, unsupported arguments, Unicode/space values and switch binding. Installer tests actually invoke the Windows `.cmd` launcher with all global aliases and all operational help topics, plus the existing Unicode split path test. Deployment downloads and persistent user PATH changes are mocked.
 
-Coverage includes real **1 MiB and 5 MiB CLI sources with 1GB parts**, multiple output parts, exact chunk boundaries, SHA-256 verification and full split/merge equality, preserved source hashes, mid-write simulated cancellation and temporary-file cleanup, pre-existing incomplete-part collisions and old temporary-file preservation. Progress tests cover measured rate/ETA/percentage, zero elapsed time, empty data and Int64 byte/part counts. Diagnostics tests cover opt-in output, actual type/source/line/stack fields and nested exceptions.
+Logo tests check all literal designs/heights against source-brief fixtures, real cryptographic RNG index ranges, selection of each design, 12,000 seeded/mock draws with reproducible approximately uniform counts, per-invocation selection, no global state, horizontal/vertical layout, narrow fallback, resize restoration without reselection, NoLogo/Quiet suppression, and clean redirected output. The seeded distribution check deliberately avoids probabilistic test failures; the real GetInt32 API is separately range-tested.
 
-Existing boundary tests still cover 500MB, 1GB, 2GB, 4GB, Int32.MaxValue, Int32.MaxValue + 1, 200GB and 1TB parsing/read arithmetic. PowerShell source/test syntax validation passed.
+A real zero-argument external CLI invocation also displayed one banner plus full main help. All source, deployment and test scripts passed PowerShell syntax parsing. Git whitespace checking respects the required intentional trailing spaces via .gitattributes.
 
-Test summaries are retained in `.test-work/results-768.json` and `.test-work/results-765-v102.json`.
+### Interactive binary regression
 
-## Actual multi-gigabyte interactive tests
-
-All three configurations used the same disposable **5,368,709,137-byte** random source, separate fresh part/restored directories, and PowerShell **7.6.8** with **Console.IsOutputRedirected = False**. Split, verify, merge preflight and merge all rendered normal progress; neither Quiet nor output redirection bypassed the fixed code.
-
-| Configured chunk | Exact generated part lengths (bytes) | Result |
-| --- | --- | --- |
-| 1GB | 1073741824 x 5, then 17 | Split / verify / merge / independent SHA-256 passed |
-| 2GB | 2147483648, 2147483648, 1073741841 | Split / verify / merge / independent SHA-256 passed |
-| 4GB | 4294967296, 1073741841 | Split / verify / merge / independent SHA-256 passed |
-
-All restored files had the exact original byte length. All source/restored SHA-256 hashes matched:
+A real terminal run on PowerShell 7.6.8 with branding/progress enabled generated **134,217,745 disposable random bytes (128 MiB + 17)** under a new workspace test directory, used a Unicode/space filename, split into **129 parts** with a 1MB chunk, verified, and merged using the merg alias. Source and restored SHA-256 matched; the source hash stayed unchanged:
 
 ```text
-DF1B641E1E8E7D0F6C7A6506AE68DB831D1BB7E511E64934D436042D7F03ED53
+1E0CEFA8A3EB4B04FA1E1221DF8D7A4E15C1DEE7A6B8620E5A1CD6A534527AA8
 ```
 
-Measured per-configuration times were approximately 75, 77 and 78 seconds, including independent restored hashing, excluding initial source generation and initial/final source hashing. Results are retained in `.test-work/runtime768-60153957-242e-4e8b-91cb-eb15b0451281/fixed-integration-results.json`. Generated large disposable data may be cleaned after final verification; the evidence records are retained.
+Interactive help/branding also completed successfully. Results are retained at `.test-work/v103-interactive-results.json`; suite summaries are `.test-work/v103-results-7.6.8.json` and `.test-work/v103-results-7.6.5.json`. Resize geometry is tested with controlled terminal dimensions, not a claim of physical drag-resize testing in every terminal application.
 
-The user's `E:\Win11_Arabic_x64v1.iso` and `.smm` backup files were **never opened, modified or deleted**. Only generated test data was used. No previous incomplete user output was reused. No physical 200GB or 1TB file test is claimed.
+No new 200GB/terabyte or multi-gigabyte integration run is claimed for this upgrade. Existing 1GB/2GB/4GB size parsing/read arithmetic and binary fixtures still pass, along with v1.0.2's corrected `[double]0.001`, StrictMode, Int64 streaming, SHA-256, old manifest compatibility, collisions and simulated mid-write interruption cleanup. Historical v1.0.2 multi-gigabyte evidence is separate from these new results.
 
-## Source, version and Git-state checks
+## Release package
 
-The checkout is on main, with origin `https://github.com/SamiAlmouss/Tqsim.git`. Git HEAD was `ed92a1b` (installer repository-path fix following the initial v1.0.0 commit). The previous v1.0.1 work was already uncommitted; it was preserved and the focused v1.0.2 correction was applied on top. Nothing was reset, committed or pushed automatically.
-
-The bundled tool shell was 7.6.5, whereas the Windows Store pwsh executable was confirmed as 7.6.8. Switching to that executable and a real terminal exposed the exact original failure. This distinction explains why an initial small redirected reproduction did not fail.
-
-Changed files for this correction: `src/Core/Tqsim.psm1`, `tqsim.ps1`, `version.json`, `examples/help.txt`, `tests/Runtime.Tests.ps1`, CLI/installer version and diagnostics tests, README, CHANGELOG and this report. The existing v1.0.1 Int64 tests and integration helper remain part of the cumulative working tree. Installer/update/uninstall behavior is unchanged.
-
-## Build and publish v1.0.2
-
-Build after reviewing/testing:
+Build after reviewing the source:
 
 ```powershell
 ./scripts/build-release.ps1
 ```
 
-This produces `dist/Tqsim-v1.0.2.zip` and `dist/Tqsim-v1.0.2.zip.sha256`. The builder refuses to overwrite an existing ZIP. v1.0.0 and v1.0.1 assets are preserved and compared with their pre-change hashes. The final ZIP checksum and an extracted CLI smoke check are verified separately after packaging.
+Artifacts: `dist/Tqsim-v1.0.3.zip` and `dist/Tqsim-v1.0.3.zip.sha256`. The package has 20 application/help/document files, including both new helpers and all eight help-topic texts. Tests, fixtures, Git metadata and disposable data are excluded. The builder refuses to overwrite an existing ZIP. Final archive contents, checksum, extracted CLI/help and a packaged disposable binary round trip are validated after building. All six v1.0.0/v1.0.1/v1.0.2 ZIP/checksum assets are compared with their pre-upgrade hashes and preserved.
 
-To publish from this repository after reviewing the cumulative patch:
+## Exact publication and update instructions
+
+Nothing was published or installed into the real user environment. From the repository root, after review:
 
 ```powershell
-git add src/Core/Tqsim.psm1 tqsim.ps1 version.json examples/help.txt scripts/test-large-file.ps1 tests/CLI.Tests.ps1 tests/Installer.Tests.ps1 tests/Int64.Tests.ps1 tests/Runtime.Tests.ps1 README.md CHANGELOG.md IMPLEMENTATION.md
-git commit -m 'Fix interactive progress property access; release Tqsim 1.0.2'
+git add .gitattributes tqsim.ps1 version.json src/Core/Tqsim.psm1 src/Commands/CLI.ps1 src/Console/Branding.ps1 examples/help.txt examples/help install.ps1 uninstall.ps1 scripts/build-release.ps1 tests/CLI.Tests.ps1 tests/Installer.Tests.ps1 tests/CLICompatibility.Tests.ps1 tests/Logos.Tests.ps1 tests/fixtures/logos README.md CHANGELOG.md IMPLEMENTATION.md
+git commit -m 'Release Tqsim 1.0.3: CLI help compatibility and literal random logos'
 git push origin main
-gh release create v1.0.2 ./dist/Tqsim-v1.0.2.zip ./dist/Tqsim-v1.0.2.zip.sha256 --repo SamiAlmouss/Tqsim --target (git rev-parse HEAD) --title 'Tqsim v1.0.2' --notes-file CHANGELOG.md
-gh release view v1.0.2 --repo SamiAlmouss/Tqsim
+gh release create v1.0.3 ./dist/Tqsim-v1.0.3.zip ./dist/Tqsim-v1.0.3.zip.sha256 --repo SamiAlmouss/Tqsim --target (git rev-parse HEAD) --title 'Tqsim v1.0.3' --notes-file CHANGELOG.md
+gh release view v1.0.3 --repo SamiAlmouss/Tqsim
 ```
 
-GitHub CLI must be authenticated and have repository write access. Upload both assets. Do not replace earlier tags or assets. No GitHub publication has been performed for this patch.
+Authenticate GitHub CLI if needed and upload both assets. Do not overwrite prior tags/assets or combine manual publication with another publisher for the same tag.
 
-## Update the installed global application
-
-The real global Tqsim installation was **not updated** during investigation or testing. Once the verified v1.0.2 release is published as the latest stable release:
+Once v1.0.3 is the latest stable published release:
 
 ```powershell
 tqsim update
-tqsim version -NoLogo
+tqsim --version -NoLogo
 ```
 
-Expected version: `1.0.2`. Alternatively, download and inspect the published installer before running it:
+Expected output: `1.0.3`. Existing older installers can download/extract the new complete ZIP; the staged 1.0.3 installer/uninstaller know the new owned files. Alternatively download and inspect the current installer before running it with `-Repository SamiAlmouss/Tqsim`, as described in README.md. The user installation and personal file data are preserved by this upgrade workflow.
 
-```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/SamiAlmouss/Tqsim/main/install.ps1 -OutFile ./install-tqsim.ps1
-Get-Content ./install-tqsim.ps1
-pwsh -NoProfile -File ./install-tqsim.ps1 -Repository SamiAlmouss/Tqsim
-```
+## Practical limits
 
-Open a fresh terminal if PATH needs refreshing. Use a fresh output directory when retrying a split after an interrupted attempt; Tqsim deliberately rejects existing part-name collisions. Add -Diagnostics if an operation fails to get the exact runtime location. These update/retry instructions were documented, not executed against the user's installation or ISO.
+No physical Windows Terminal/VS Code/standard-console matrix or physical drag-resize sweep is claimed; layout and terminal fallbacks have deterministic tests plus a real Windows interactive-console run. PowerShell owns native progress rendering and may repaint/color its overlay. App-managed resize reflow appends a fresh stable-identity block rather than rewriting terminal history. No animation, background resize listener or command abbreviation system was added.
 
-## Remaining limits
-
-Physical disk disconnection, real Ctrl+C/power loss, other filesystems and 200GB/terabyte integrations were not newly tested. Interruption cleanup tests simulate a cancellation during an actual part write. Binary data memory stays bounded; manifest/rollback metadata still uses memory proportional to the number of parts. No unrelated interface redesign, deployment locking or resume behavior was added.
+Binary data buffers remain bounded, while existing manifest/rollback metadata still grows with part count. The upgrade does not add resume support, independent release signatures or cross-process deployment locking. These existing limitations do not change the tested file integrity behavior.

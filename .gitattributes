@@ -5,3 +5,5 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.sh text eol=lf
+src/Console/Branding.ps1 whitespace=-blank-at-eol
+tests/fixtures/logos/*.txt text eol=lf whitespace=-blank-at-eol

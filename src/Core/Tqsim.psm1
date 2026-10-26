@@ -1,21 +1,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+. "$PSScriptRoot/../Console/Branding.ps1"
+. "$PSScriptRoot/../Commands/CLI.ps1"
 function ConvertTo-TqsimHex([byte[]]$Bytes) { return [BitConverter]::ToString($Bytes).Replace('-','').ToLowerInvariant() }
 function Assert-TqsimJsonKeys($Element) {
     if ($Element.ValueKind -eq [Text.Json.JsonValueKind]::Object) {
         $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($property in $Element.EnumerateObject()) {if (!$seen.Add($property.Name)) {throw 'Duplicate JSON property.'};Assert-TqsimJsonKeys $property.Value}
     } elseif ($Element.ValueKind -eq [Text.Json.JsonValueKind]::Array) {foreach ($entry in $Element.EnumerateArray()) {Assert-TqsimJsonKeys $entry}}
-}
-function Show-TqsimBanner {
-    Write-Host @'
- _____  ___  ____ ___ __  __
-|_   _|/ _ \/ ___|_ _|  \/  |
-  | | | | | \___ \| || |\/| |
-  | | | |_| |___) | || |  | |
-  |_|  \__\_\____/___|_|  |_|
-Split • Merge • Verify    Version: 1.0.2
-'@ -ForegroundColor Cyan
 }
 function ConvertTo-TqsimSize([string]$Size) {
     if ($Size -notmatch '^(\d+)(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)?$') { throw [ArgumentException]::new('Invalid size. Use positive bytes, MB, GB, MiB, or GiB.') }
@@ -89,6 +81,8 @@ function Get-TqsimProgressMetrics([long]$Done,[long]$Total,[long]$Part,[double]$
 }
 function Show-TqsimProgress($State,[long]$Done,[long]$Total,[long]$Part,[long]$Count,$Clock,[switch]$Quiet) {
     if ($Quiet -or [Console]::IsOutputRedirected) { return }
+    $render=Get-Variable -Name TqsimRenderState -ValueOnly -ErrorAction SilentlyContinue
+    if ($null -ne $render) {Update-TqsimBanner $render}
     $metrics=Get-TqsimProgressMetrics $Done $Total $Part $Clock.Elapsed.TotalSeconds
     Write-Progress -Activity "TQSIM — $State" -Status ("Part {0}/{1}; completed {2}; {3}/{4} bytes; {5:N1} MiB/s; elapsed {6}; ETA {7:N0}s" -f $Part,$Count,$metrics.CompletedParts,$Done,$Total,($metrics.Rate/1MB),$Clock.Elapsed.ToString('hh\:mm\:ss'),$metrics.Eta) -PercentComplete $metrics.Percent
 }
@@ -117,7 +111,7 @@ function Split-Tqsim {
             [IO.File]::Move($temp,$final); $owned.Add($final); $parts.Add(@{index=$i;fileName=$partName;size=$written;sha256=$digest})
         }
         if ($inputStream.Length -ne $length -or [IO.File]::GetLastWriteTimeUtc($source) -ne $stamp -or $inputStream.ReadByte() -ne -1) {throw 'Source changed during split.'}
-        $m=[ordered]@{application='Tqsim';applicationVersion='1.0.2';manifestVersion=1;operationId=[guid]::NewGuid().ToString();originalFileName=$name;originalSize=$length;partSize=$chunk;totalParts=$count;hashAlgorithm='SHA256';originalSHA256=(ConvertTo-TqsimHex ($whole.GetHashAndReset()));createdUtc=[datetime]::UtcNow.ToString('o');parts=@($parts.ToArray())}
+        $m=[ordered]@{application='Tqsim';applicationVersion=(Get-TqsimVersion);manifestVersion=1;operationId=[guid]::NewGuid().ToString();originalFileName=$name;originalSize=$length;partSize=$chunk;totalParts=$count;hashAlgorithm='SHA256';originalSHA256=(ConvertTo-TqsimHex ($whole.GetHashAndReset()));createdUtc=[datetime]::UtcNow.ToString('o');parts=@($parts.ToArray())}
         $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$owned.Add($temp);[IO.File]::WriteAllText($temp,($m|ConvertTo-Json -Depth 8));[IO.File]::Move($temp,$manifestPath);$success=$true
         if (!$Quiet) {Write-Output "COMPLETED: $count parts, $length bytes; $manifestPath"}
     } finally { $inputStream.Dispose();$whole.Dispose(); Write-Progress -Activity TQSIM -Completed; if (!$success) {foreach ($path in $owned) {if ([IO.File]::Exists($path)) {[IO.File]::Delete($path)}}} }

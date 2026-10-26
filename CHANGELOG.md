@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 — 2026-10-26
+
+- Centralize case-insensitive command dispatch, practical dash/slash help aliases, version aliases, command-specific help and conservative typo suggestions. Handle help before file-operation validation; reject unsupported arguments with exit code 2 without evaluating command text.
+- Store exactly three literal ASCII logos, select one cryptographically per invocation, and preserve it during progress and resize. Center the selected block and metadata; support dynamic heights, narrow-terminal fallback, true-color/ConsoleColor styling, NoColor/NO_COLOR and clean redirected output.
+- Read the authoritative application version from version.json for the CLI, banner and new manifest application metadata. Preserve schema 1 and earlier manifests.
+- Include CLI/branding helpers and all topic help files in release packages and owned-file deployment cleanup. Preserve the existing Windows launcher and Unicode/space forwarding.
+- Retain the v1.0.2 StrictMode/progress correction, Int64 streaming, bounded binary buffers, SHA-256 integrity and interrupted-operation/collision protection. No processing-engine redesign or animation was added.
+
 ## 1.0.2 — 2026-10-26
 
 - Fix the exact `The property '1' cannot be found` split failure: `[double].001` in the interactive progress calculation was parsed as property access under StrictMode. Use `[double]0.001` and expose the shared progress metrics for direct headless regression testing.
