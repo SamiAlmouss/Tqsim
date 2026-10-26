@@ -8,7 +8,7 @@ try {while ($remaining -gt 0) {[Security.Cryptography.RandomNumberGenerator]::Fi
 Import-Module "$PSScriptRoot/../src/Core/Tqsim.psm1" -Force
 $clock=[Diagnostics.Stopwatch]::StartNew();Split-Tqsim -File $source -Size $PartSize -Quiet
 $parts=Join-Path $directory 'Output';Test-Tqsim -PartsPath $parts -Quiet;Merge-Tqsim -PartsPath $parts -Quiet
-$restored=Join-Path $parts 'Output/large binary.bin'
+$restored=Join-Path $parts 'large binary.bin'
 $sourceHash=(Get-FileHash -LiteralPath $source).Hash;$restoredHash=(Get-FileHash -LiteralPath $restored).Hash
 if ($sourceHash -cne $restoredHash) {throw 'Round-trip mismatch.'}
 $manifest=Read-TqsimManifest (Join-Path $parts 'large binary.bin.tqsim.json')

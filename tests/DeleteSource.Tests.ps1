@@ -37,10 +37,8 @@ Describe 'Real disposable verified deletion' {
         (Get-FileHash (Join-Path $f.Restored 'نسخة 測試 with spaces.bin')).Hash|Should Be $expected
         [IO.File]::ReadAllText((Join-Path $f.Parts 'unrelated.part9999'))|Should Be preserve
         @(Get-ChildItem $f.Parts -Filter '*.tqsim.json').Count|Should Be 0
-        $journal=Get-Content (Get-ChildItem $f.Restored -Filter '.tqsim-cleanup-*.json').FullName -Raw|ConvertFrom-Json
-        $journal.state|Should Be completed;$journal.targets.Count|Should Be 12
-        $journal.targets[-1].Path|Should Match '\.tqsim\.json$'
-        @($journal.targets|Where-Object Status -ne deleted).Count|Should Be 0
+        @(Get-TestRecoveryJournal $f).Count|Should Be 0
+        @(Get-ChildItem $f.Restored -Filter '.tqsim-cleanup-*.json').Count|Should Be 0
     }
     It 'handles zero bytes and exact chunk boundaries' {
         foreach ($length in 0,2000) {
@@ -129,7 +127,7 @@ Describe 'Real disposable verified deletion' {
             (Get-FileHash "$($f.Restored)/data.bin").Hash|Should Be $hash
             [IO.File]::Exists((Join-Path $f.Parts 'data.bin.part0001'))|Should Be $false
             [IO.File]::Exists((Join-Path $f.Parts 'data.bin.tqsim.json'))|Should Be $true
-            $j=Get-Content (Get-ChildItem $f.Restored -Filter '.tqsim-cleanup-*.json').FullName -Raw|ConvertFrom-Json
+            $j=Get-TestRecoveryJournal $f
             $j.state|Should Be cleaning;$j.targets[0].Status|Should Be deleting
             @($j.targets|Where-Object Status -eq pending).Count|Should Be 11
             @(Get-ChildItem $f.Parts -Filter '*.part*').Count|Should Be 10
@@ -222,7 +220,7 @@ Describe 'Real disposable verified deletion' {
             (Get-FileHash "$($f.Restored)/data.bin").Hash|Should Be $hash
             [IO.File]::Exists((Join-Path $f.Parts 'data.bin.tqsim.json'))|Should Be $true
             [IO.File]::Exists((Join-Path $f.Parts 'data.bin.part0001'))|Should Be $false
-            $j=Get-Content (Get-ChildItem $f.Restored -Filter '.tqsim-cleanup-*.json').FullName -Raw|ConvertFrom-Json
+            $j=Get-TestRecoveryJournal $f
             $j.state|Should Be incomplete;$j.targets[0].Status|Should Be deleted;$j.targets[1].Status|Should Be deleting
             @($j.targets|Where-Object Status -eq pending).Count|Should Be 10
             # No automatic retry: the next normal invocation stops at the missing part.

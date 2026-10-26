@@ -8,7 +8,8 @@ OPTIONS
   -PartsPath    Parts directory; defaults to the current working directory.
   -Manifest     Explicit .tqsim.json file; required if multiple manifests exist.
                 Parts are resolved relative to the selected manifest.
-  -Output       Output directory; defaults to Output in the manifest directory.
+  -Output       Optional destination. Default: directly beside input parts in
+                the selected manifest directory. No Output folder is created.
   -Overwrite    Explicit authorization to replace an existing restored file.
   -ds           true or false (case insensitive). Default: false, keep sources.
                 true deletes only the selected manifest's ordered input parts
@@ -29,15 +30,26 @@ INTEGRITY
   Checks part and whole hashes in the single merge streaming pass.
   Publishes the restored file only after verification succeeds.
   Source parts are retained unless -ds true is explicitly supplied.
+  Old unencrypted archives never request a password. Encrypted schema 2 is
+  automatically detected and prompts securely for the decryption password.
+  Do not pass -encrypt to merge: it is split-only. GCM/manifest authentication
+  is mandatory even with -verify false. Wrong passwords/corruption preserve
+  sources and do not publish partial plaintext.
 
 DELETE SOURCE WARNING
   Delete Source is irreversible. Use true only when reconstructed data has
   been verified and is stored safely. SHA-256 does not replace a backup or
   guarantee future storage durability. Shared/ambiguous parts are not deleted.
   Multiple-file cleanup is not atomic. An interruption can leave some parts
-  deleted: the verified output and cleanup journal remain. Errors report
+  deleted: the completed output and a private recovery record remain. Errors report
   deleted and remaining/unconfirmed counts and return nonzero. Journals do
-  not authorize retries: inspect them and the verified output manually.
+  not authorize retries: inspect them and independently check output manually.
+  Successful cleanup leaves no cleanup JSON. Exceptional recovery records are
+  under %LOCALAPPDATA%\Tqsim\Recovery, never routinely in the parts directory.
+  On access denial, only this file's Delete permission may be added if Windows
+  permits DACL changes. No drive/parent ACL edits, ownership takeover or UAC
+  bypass occurs. If authorization is required, keep output and clean up exact
+  sources with an authorized account; do not rerun the completed operation.
   -ds true -verify false skips independent read-back and has less assurance.
   Flush/successful writes do not guarantee storage durability after power loss.
 

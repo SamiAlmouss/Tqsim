@@ -3,6 +3,8 @@ $ErrorActionPreference='Stop'
 . "$PSScriptRoot/../Console/Branding.ps1"
 . "$PSScriptRoot/../Commands/CLI.ps1"
 . "$PSScriptRoot/Deletion.ps1"
+. "$PSScriptRoot/Encryption.ps1"
+. "$PSScriptRoot/Errors.ps1"
 function ConvertTo-TqsimHex([byte[]]$Bytes) { return [BitConverter]::ToString($Bytes).Replace('-','').ToLowerInvariant() }
 function Assert-TqsimJsonKeys($Element) {
     if ($Element.ValueKind -eq [Text.Json.JsonValueKind]::Object) {
@@ -30,12 +32,21 @@ function Assert-TqsimInteger($Value,[long]$Minimum=0) {
 }
 function Read-TqsimManifest([string]$Path) {
     try {
-        $json=[IO.File]::ReadAllText([IO.Path]::GetFullPath($Path));$document=[Text.Json.JsonDocument]::Parse($json)
+        $metadataStream=[IO.FileStream]::new([IO.Path]::GetFullPath($Path),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        try {
+            if($metadataStream.Length -gt 16777216){Initialize-TqsimCrypto;if([Tqsim.CryptoSession]::PeekManifestVersion($metadataStream) -ne 1){throw 'Encrypted manifest exceeds the 16 MiB safety limit.'}}
+            $metadataReader=[IO.StreamReader]::new($metadataStream,[Text.Encoding]::UTF8,$true,4096,$true)
+            try {$json=$metadataReader.ReadToEnd()} finally {$metadataReader.Dispose()}
+        } finally {$metadataStream.Dispose()}
+        $document=[Text.Json.JsonDocument]::Parse($json)
         try {Assert-TqsimJsonKeys $document.RootElement
-            if ($document.RootElement.GetProperty('createdUtc').GetString() -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$') {throw 'Timestamp must be ISO 8601 UTC.'}
+            $createdString=$document.RootElement.GetProperty('createdUtc').GetString()
+            if ($createdString -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$') {throw 'Timestamp must be ISO 8601 UTC.'}
         } finally {$document.Dispose()}
         $m=$json | ConvertFrom-Json -AsHashtable -ErrorAction Stop
         Assert-TqsimInteger $m.manifestVersion 1
+        if ($m.manifestVersion -eq 2) {if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 16777216) {throw 'Encrypted manifest exceeds 16 MiB.'};$m.createdUtc=$createdString;Assert-TqsimEncryptedManifest $m;return $m}
+        if ($m.ContainsKey('encryption')) {throw 'Encrypted metadata requires supported manifest schema 2.'}
         if ($m.application -cne 'Tqsim' -or $m.manifestVersion -ne 1 -or $m.hashAlgorithm -cne 'SHA256' -or $m.applicationVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Unsupported manifest.' }
         $null=[guid]::Parse($m.operationId)
         if ($m.createdUtc -isnot [datetime]) { $null=[datetimeoffset]::Parse($m.createdUtc,[Globalization.CultureInfo]::InvariantCulture) }
@@ -91,7 +102,8 @@ function Show-TqsimProgress($State,[long]$Done,[long]$Total,[long]$Part,[long]$C
     Write-TqsimProgressFrame $render $metrics.Percent $status
 }
 function Split-Tqsim {
-    param([string]$File,[string]$Size,[string]$Output,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false',[string]$verify='true')
+    param([string]$File,[string]$Size,[string]$Output,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false',[string]$verify='true',[string]$encrypt='false')
+    if (Resolve-TqsimEncryptOption $encrypt) {Split-TqsimEncrypted -File $File -Size $Size -Output $Output -Quiet:$Quiet -ds $ds -verify $verify;return}
     $readBack=Resolve-TqsimVerifyOption $verify
     $deleteSource=Resolve-TqsimDeleteSourceOption $ds;$cleanup=New-TqsimDeletionContext
     if (!$Quiet -and ![Console]::IsOutputRedirected -and $null -eq (Get-Variable TqsimRenderState -ValueOnly -ErrorAction SilentlyContinue)) {$TqsimRenderState=New-TqsimRenderState -SkipLogo}
@@ -146,10 +158,17 @@ function Split-Tqsim {
     } finally { $inputStream.Dispose();$whole.Dispose();Close-TqsimDeletionContext $cleanup; Complete-TqsimProgress; if (!$success) {foreach ($path in $owned) {if ([IO.File]::Exists($path)) {[IO.File]::Delete($path)}}} }
 }
 function Invoke-TqsimParts {
-    param($Metadata,[string]$Directory,$Destination,[switch]$Quiet,[int]$BufferSize=4194304,[string]$State='VERIFYING')
+    param($Metadata,[string]$Directory,$Destination,[switch]$Quiet,[int]$BufferSize=4194304,[string]$State='VERIFYING',$Session)
+    if ($Metadata.manifestVersion -eq 2) {
+        $ownsSession=$null -eq $Session
+        try {if ($ownsSession) {$Session=New-TqsimCryptoSession $Metadata};Assert-TqsimManifestAuthentication $Metadata $Session;Invoke-TqsimEncryptedParts $Metadata $Directory $Session $Destination -Quiet:$Quiet} finally {if ($ownsSession -and $Session) {$Session.Dispose()}}
+        return
+    }
     $buffer=[byte[]]::new($BufferSize);$whole=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256');[long]$done=0;$clock=[Diagnostics.Stopwatch]::StartNew();[long]$tick=0
     try { foreach ($part in $Metadata.parts) {
-        $path=Join-Path $Directory $part.fileName; Assert-TqsimRegular $path; $s=New-TqsimStream $path Open Read;$hash=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256')
+        $path=Join-Path $Directory $part.fileName
+        if (![IO.File]::Exists($path)) {throw (New-TqsimUserError 'MISSING_PART' 'MERGE / VERIFY FAILED' "Missing required part: $($part.fileName)" 'Restore this part from the original archive and try again. No source files were deleted.' $null 3)}
+        Assert-TqsimRegular $path; $s=New-TqsimStream $path Open Read;$hash=[Security.Cryptography.IncrementalHash]::CreateHash('SHA256')
         try {if ($s.Length -ne $part.size) {throw [IO.InvalidDataException]::new("Wrong size: $($part.fileName)")};[long]$remaining=$part.size
             while ($remaining -gt 0) {$n=$s.Read($buffer,0,(Get-TqsimReadCount $buffer.Length $remaining));if (!$n) {throw [IO.InvalidDataException]::new('Unexpected EOF.')};$hash.AppendData($buffer,0,$n);$whole.AppendData($buffer,0,$n);if ($Destination) {$Destination.Write($buffer,0,$n)};$remaining-=$n;$done+=$n
                 if ($clock.ElapsedMilliseconds-$tick -ge 250) {Show-TqsimProgress $State $done $Metadata.originalSize $part.index $Metadata.totalParts $clock -Quiet:$Quiet;$tick=$clock.ElapsedMilliseconds}
@@ -168,24 +187,25 @@ function Test-Tqsim {
 function Merge-Tqsim {
     param([string]$PartsPath='.',[string]$Manifest,[string]$Output,[switch]$Overwrite,[switch]$Quiet,[int]$BufferSize=4194304,[string]$ds='false',[string]$verify='true')
     $readBack=Resolve-TqsimVerifyOption $verify
-    $deleteSource=Resolve-TqsimDeleteSourceOption $ds;$cleanup=New-TqsimDeletionContext
+    $deleteSource=Resolve-TqsimDeleteSourceOption $ds;$cleanup=New-TqsimDeletionContext;$crypto=$null
     if (!$Quiet -and ![Console]::IsOutputRedirected -and $null -eq (Get-Variable TqsimRenderState -ValueOnly -ErrorAction SilentlyContinue)) {$TqsimRenderState=New-TqsimRenderState -SkipLogo}
     $operationClock=[Diagnostics.Stopwatch]::StartNew()
     try {
     $path=Find-TqsimManifest $PartsPath $Manifest
     if ($deleteSource) {$manifestEntry=Add-TqsimDeletionFile $cleanup $path -Target -ReadBack -Quiet:$Quiet}
     $m=Read-TqsimManifest $path;$directory=[IO.Path]::GetDirectoryName($path)
+    if ($m.manifestVersion -eq 2) {$crypto=New-TqsimCryptoSession $m;Assert-TqsimManifestAuthentication $m $crypto}
     if ($deleteSource) {
         Assert-TqsimUnsharedParts $path $m
         foreach ($part in $m.parts) {$null=Add-TqsimDeletionFile $cleanup (Join-Path $directory $part.fileName) $part.sha256 $part.size -Target}
         $null=$cleanup.Entries.Remove($manifestEntry);$cleanup.Entries.Add($manifestEntry) # Manifest is always deleted last.
     }
-    if (!$Output) {$Output=Join-Path $directory 'Output'};$dest=New-TqsimDestination $Output $m.originalSize;$final=Join-Path $dest $m.originalFileName
+    if (!$Output) {$Output=$directory};$dest=New-TqsimDestination $Output $m.originalSize;$final=Join-Path $dest $m.originalFileName
     if ($final -ieq $path -or @($m.parts|Where-Object {(Join-Path $directory $_.fileName) -ieq $final}).Count) {throw 'Output collides with input.'}
-    if ((Test-Path -LiteralPath $final) -and !$Overwrite) {throw 'Output exists; use -Overwrite to authorize replacement.'}
+    if ((Test-Path -LiteralPath $final) -and !$Overwrite) {throw (New-TqsimUserError 'OUTPUT_EXISTS' 'MERGE CANNOT START' "The output file already exists: $final" 'Choose another -Output location, move the existing file, or explicitly authorize replacement with -Overwrite.' $null)}
     if (Test-Path -LiteralPath $final) {Assert-TqsimRegular $final}
-    $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$s=$null
-    try {$s=New-TqsimStream $temp CreateNew Write;Invoke-TqsimParts $m $directory $s -Quiet:$Quiet -BufferSize $BufferSize -State MERGING;$s.Flush($true);if ($s.Length -ne $m.originalSize) {throw [IO.InvalidDataException]::new('Written output length mismatch.')};$outputIdentity=if ($deleteSource) {Get-TqsimFileIdentity $s} else {''};$s.Dispose();$s=$null
+    $temp=Join-Path $dest ('.tqsim-'+[guid]::NewGuid()+'.tmp');$s=$null;$tempCreated=$false
+    try {$s=if($crypto){New-TqsimPrivateStream $temp}else{New-TqsimStream $temp CreateNew Write};$tempCreated=$true;Invoke-TqsimParts $m $directory $s -Quiet:$Quiet -BufferSize $BufferSize -State MERGING -Session $crypto;$s.Flush($true);if ($s.Length -ne $m.originalSize) {throw [IO.InvalidDataException]::new('Written output length mismatch.')};$outputIdentity=if ($deleteSource) {Get-TqsimFileIdentity $s} else {''};$s.Dispose();$s=$null
         if ([IO.File]::Exists($final) -and $Overwrite) {[IO.File]::Replace($temp,$final,[System.Management.Automation.Language.NullString]::Value)} else {[IO.File]::Move($temp,$final)}
         $deletionResult=''
         if ($deleteSource) {
@@ -200,7 +220,7 @@ function Merge-Tqsim {
         Show-TqsimProgress COMPLETED $m.originalSize $m.originalSize $m.totalParts $m.totalParts $operationClock -Quiet:$Quiet
         Complete-TqsimProgress
         if (!$Quiet) {Write-Output "COMPLETED: restored $($m.originalSize) bytes to $final";if (!$readBack) {Write-Output 'Independent verification skipped.'};if ($deletionResult) {Write-Output $deletionResult}}
-    } finally {if ($s) {$s.Dispose()};if ([IO.File]::Exists($temp)) {[IO.File]::Delete($temp)}}
-    } finally {Close-TqsimDeletionContext $cleanup;Complete-TqsimProgress}
+    } finally {if ($s) {$s.Dispose()};if ($tempCreated -and [IO.File]::Exists($temp)) {[IO.File]::Delete($temp)}}
+    } finally {Close-TqsimDeletionContext $cleanup;if ($crypto) {$crypto.Dispose()};Complete-TqsimProgress}
 }
 Export-ModuleMember -Function *-Tqsim*

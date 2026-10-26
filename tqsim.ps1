@@ -28,9 +28,7 @@ try {
     exit 0
 } catch {
     $failure=$_
-    [Console]::Error.WriteLine("FAILED: $($failure.Exception.Message)")
+    $exitCode=if (Get-Command Write-TqsimUserFailure -ErrorAction SilentlyContinue) {Write-TqsimUserFailure $failure} else {[Console]::Error.WriteLine('FAILED: Tqsim could not start. Check the installation; use -Diagnostics for details.');1}
     if ($Diagnostics) {Write-TqsimDiagnostics $failure}
-    if ($failure.Exception -is [ArgumentException]) { exit 2 }
-    if ($failure.Exception -is [IO.InvalidDataException]) { exit 3 }
-    exit 1
+    exit $exitCode
 }

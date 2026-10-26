@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6 — 2026-10-26
+
+- Preserve legacy unencrypted schema/part bytes and verify authentic relocated fixtures generated with archived 1.0.2–1.0.5 releases, without original source files or password prompts.
+- Restore merge output directly beside the selected manifest/parts by default; explicit Output and collision/Overwrite safeguards remain.
+- Add split-only strict encrypt=true|false, default false. Use hidden confirmed passphrase entry, .NET AES-256-GCM records, PBKDF2-HMAC-SHA256 (600,000 iterations, fresh salt), domain-separated manifest HMAC, bounded buffers/physical part sizes and versioned authenticated schema 2. Merge/verify detect encryption automatically; authentication remains mandatory with verify=false.
+- Move private write-ahead cleanup records to per-user Tqsim/Recovery. Remove records after full success or zero-deletion failures; retain actionable partial/interrupted state without touching unrelated records or completed output.
+- Attempt normal deletion first; after access denial, try only current-SID per-file Delete permission when WRITE_DAC is authorized. No ownership takeover, broad ACL change, shell invocation or UAC bypass. Retain sources with actionable errors when denied, read-only, locked or changed.
+- Add structured user-facing errors with diagnostics-only technical detail; preserve existing Int64 streaming, verification defaults, random logos/colors and separate progress/status rows. Package crypto source/specification without runtime downloads; add authentication, historical, real-ACL and recovery tests plus disposable multi-gigabyte measurements.
+
 ## 1.0.5 — 2026-10-26
 
 - Add split/merge/merg -verify true|false, default true; retain -ds default false. Reject invalid Boolean strings without implicit truthiness. Omitted options use their established defaults.

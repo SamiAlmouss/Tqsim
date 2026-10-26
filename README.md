@@ -59,14 +59,14 @@ From this checkout, use `pwsh -NoProfile -File ./tqsim.ps1` in place of `tqsim`.
 For development failures, add `-Diagnostics` to print the exception type, source script, exact line number, PowerShell ScriptStackTrace, and inner exceptions to stderr. Normal mode retains readable errors and the same exit codes. To retry after an incomplete split, choose a fresh output directory; Tqsim refuses to overwrite existing part names:
 
 ```powershell
-pwsh -NoProfile -File ./tqsim.ps1 split -File 'E:\Win11_Arabic_x64v1.iso' -Size 1GB -Output 'E:\Tqsim-parts-v1.0.5' -Diagnostics
+pwsh -NoProfile -File ./tqsim.ps1 split -File 'E:\Win11_Arabic_x64v1.iso' -Size 1GB -Output 'E:\Tqsim-parts-v1.0.6' -Diagnostics
 ```
 
 That example is for a user-initiated retry; automated tests use disposable binary data and never the original ISO.
 
 Sizes are positive integer bytes, or binary suffixes B, KB/KiB, MB/MiB, GB/GiB, TB/TiB. Thus 1GB = 1,073,741,824 bytes. Fractional, negative and overflowing sizes are rejected.
 
-Split defaults to `Output` alongside the source. Parts are `disk.iso.part0001`, etc., with numbering width expanded as needed. Empty input produces zero parts and a manifest containing the SHA-256 of the empty stream. Merge and verify default to the current directory. Merge defaults to its `Output` subdirectory. When multiple manifests exist, provide `-Manifest` explicitly. The manifest's directory defines the location of its relative parts, including when `-PartsPath` is also supplied.
+Split defaults to `Output` alongside the source. Parts are `disk.iso.part0001`, etc., with numbering width expanded as needed. Empty input produces zero parts and a manifest containing the SHA-256 of the empty stream. Merge and verify discover parts in the current directory unless PartsPath/Manifest is supplied. **Merge restores directly in the selected manifest's directory**, beside its parts; no Output subdirectory is created. Explicit `-Output` always selects that destination. Existing final files are never silently overwritten. The manifest's directory defines relative part paths, including when PartsPath is also supplied.
 
 Existing split outputs are never overwritten. Merge requires explicit `-Overwrite` to replace a restored file and uses atomic filesystem replacement where supported. Inputs are retained unless -ds true is explicitly supplied. Merge checks each part and the whole-file hash while streaming into an unpublished temporary output; it does not pre-read every part. Failed temporary output is removed. Ctrl+C unwinds finally blocks; forced termination or power loss can leave `.tqsim-*.tmp` or unreferenced parts. Review these manually before removal. No resumable operations are implemented.
 
@@ -107,7 +107,29 @@ tqsim merg -PartsPath "D:\Backup\Output" -ds true -verify false
 
 Split hashes the original and each part in its sole source-reading pass; with verification enabled it independently rereads the generated parts once. Merge validates source hashes in its writing pass and independently rereads the published destination only if enabled. Source targets and protected output are locked against writes/renames throughout processing. Windows volume/file IDs, lengths and creation/write timestamps are captured and revalidated without rereading payload. The identity of a created temporary file must still match its published destination. Each deletion target stays locked until its own immediate close/revalidation/delete boundary. File/ancestor reparse points, hard links, collisions and unusable identities are rejected; shared parts or invalid neighbouring manifests refuse deletion.
 
-Cleanup writes `.tqsim-cleanup-<GUID>.json` beside the protected destination. The journal records authorization, exact paths, identities, streaming hashes, whether independent read-back occurred, and per-file status. It is flushed before deletion and retained afterward. Multiple-file deletion is **not atomic**. Failure returns nonzero with confirmed deleted and remaining/unconfirmed counts; the completed output remains and the manifest is kept until every part was removed. A crash/power loss can leave an uncertain `deleting` entry. Inspect the journal and independently check the output manually. Journals never authorize automatic retries or execute recorded paths.
+Cleanup creates a private write-ahead record under `%LOCALAPPDATA%\Tqsim\Recovery`, containing exact paths, identities, streaming hashes and per-file state, with no password/key. **Successful cleanup removes its record** and never advertises an obsolete journal path. A failure with zero files removed leaves no pointless journal; partial deletion or an interrupted uncertain delete preserves recovery data. Unrelated older recovery records are never removed. Multiple-file deletion is **not atomic**. Failure returns nonzero with deleted and remaining/unconfirmed counts; completed output survives and the manifest is removed last. A crash can leave a `deleting` entry requiring manual reconciliation. No recovery record executes paths or authorizes automatic retries.
+
+Normal deletion is attempted first. Only after access denial, and only with ds=true, Tqsim may add **Delete only** for the current Windows SID to that exact file's DACL. Windows must permit WRITE_DAC; Tqsim does not take ownership, enable privileges, run icacls through a shell, alter drive/parent ACLs, or bypass UAC. A failed retry restores the prior DACL where permitted. Read-only/locked files and identity/link failures receive distinct guidance. No scoped UAC helper is provided: if authorization is required, keep completed output and ask an authorized account to clean up the exact remaining sources, rather than rerunning the large operation. Diagnostics retains technical exceptions; normal output explains the cause/action without raw .NET invocation errors.
+
+## Authenticated encryption (1.0.6)
+
+`-encrypt true|false` applies **only to split**, defaults to false, and uses the same strict case-insensitive string parsing. Merge rejects an encrypt parameter and automatically detects new encrypted schema-2 archives. Unencrypted schema 1, existing part boundaries/bytes and old manifests remain unchanged; they never request a password. Authentic fixtures generated using archived releases 1.0.2–1.0.5 are tested after relocation without their originals; no claim is made that the user's actual uploaded backups were tested.
+
+```powershell
+tqsim split -File "D:\Backup\secret.iso" -Size 1GB -encrypt true
+# Two hidden prompts: password and confirmation. Keep this password safely.
+tqsim merg -PartsPath "D:\Backup\Output"
+# Detects encryption; prompts once and restores Output\secret.iso directly.
+tqsim merg -PartsPath "D:\Backup\Output" -Output "D:\Restored" -ds true
+```
+
+Encryption uses .NET AES-256-GCM with 16-byte tags, bounded 4 MiB records and unique ordinal nonces per archive key. PBKDF2-HMAC-SHA256 uses 600,000 iterations and a fresh 32-byte salt, then domain-separated AES/manifest keys; no crypto packages are downloaded. A separate manifest HMAC authenticates names, ordering, lengths, hashes and algorithm/KDF layout before paths are used. See the packaged [encrypted format specification](docs/ENCRYPTED-FORMAT-v1.md) for exact canonical encoding, limits and nonce rules.
+
+Passphrases must contain 12–1024 characters and new entries must match. Hidden SecureString input is required; redirected/noninteractive execution fails before creating output. There are no password/key CLI arguments. Lost passwords cannot be recovered. Mutable password/key/plaintext buffers are cleared where practical, but managed copies, dumps and OS caches cannot be guaranteed erased. Filename/size/hash metadata is authenticated but not confidential. Protect passwords and keep an independent backup. The format composition is new and has not had an external security audit.
+
+Encrypted physical parts include 28 bytes of framing/tag overhead per record and never exceed Size. Minimum encrypted Size is 29 bytes; it can hold at least one plaintext byte. Crypto records stay bounded regardless of multi-gigabyte part sizes. Empty plaintext uses an authenticated zero-part manifest. Authentication is mandatory with every option combination: **verify=false never disables GCM or manifest authentication**. Wrong passwords and corrupt/missing/reordered data do not publish partial plaintext or delete archive sources. Temporary plaintext is created with private owner permissions and removed on failure; removal is not secure erasure on SSDs, snapshots or journaling filesystems.
+
+The existing ds=false and verify=true defaults remain. Fast encrypted ds=true/verify=false warns and skips only optional read-back. Successful writes/flushes are not a power-loss durability guarantee. Both encrypted and plain merge use the same destination and cleanup rules. Read [v1.0.6 validation and measurements](docs/VALIDATION-v1.0.6.md) for actual tests, timing, compatibility evidence and limitations.
 
 Use deletion mode in directories you control. Closing read handles before exact-path deletion leaves a small final path-replacement race; ancestor checks and restrictive sharing reduce it but cannot provide a filesystem transaction or defeat a privileged concurrent attacker. Ownership scans cover manifests in the selected directory, not unknown references elsewhere. Network filesystem semantics and power-loss durability are not guaranteed. Without `-ds true`, processing retains the existing retention and manifest behavior.
 
@@ -178,12 +200,12 @@ Part indexes start at 1 without gaps; all but the final part equal partSize; len
 
 ## Update and uninstall
 
-Version 1.0.2 fixes an interactive-progress failure: `[double].001` was parsed as property access, producing a StrictMode error for property `1`. The corrected numeric literal is `[double]0.001`. Progress arithmetic now has direct regression coverage even when tests run with redirected output. The Int64 streaming fix from 1.0.1 remains in place. Existing manifests remain compatible; the manifest schema and existing CLI syntax are unchanged. Version 1.0.3 adds the help compatibility and randomized branding described above while preserving that fix. Once the v1.0.5 release has been published, update the installed global command and check its version:
+Version 1.0.2 fixes an interactive-progress failure: `[double].001` was parsed as property access, producing a StrictMode error for property `1`. The corrected numeric literal is `[double]0.001`. Progress arithmetic now has direct regression coverage even when tests run with redirected output. The Int64 streaming fix from 1.0.1 remains in place. Existing manifests remain compatible; the manifest schema and existing CLI syntax are unchanged. Version 1.0.3 adds the help compatibility and randomized branding described above while preserving that fix. Once the v1.0.6 release has been published, update the installed global command and check its version:
 
 ```powershell
 tqsim update
 tqsim version -NoLogo
-# Expected after updating: 1.0.5
+# Expected after updating: 1.0.6
 ```
 
 If the installed updater is unavailable, download and inspect the current `install.ps1` as described above, then rerun it with your repository name. It installs the latest stable release and preserves prior versions. Updating the application does not modify your original backup, parts, or manifests.
@@ -205,7 +227,7 @@ Invoke-Pester ./tests
 ./scripts/build-release.ps1
 ```
 
-The build produces `dist/Tqsim-v1.0.5.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
+The build produces `dist/Tqsim-v1.0.6.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
 
 ## Publish to GitHub
 
@@ -216,30 +238,30 @@ No publication or global application update is performed automatically. Review a
 git status --short
 git diff
 git add -- tqsim.ps1 src examples install.ps1 uninstall.ps1 scripts tests version.json README.md CHANGELOG.md IMPLEMENTATION.md docs
-git commit -m 'Release Tqsim 1.0.5'
-git tag v1.0.5
-git push origin v1.0.5
+git commit -m 'Release Tqsim 1.0.6'
+git tag v1.0.6
+git push origin v1.0.6
 ```
 
 No release workflow is configured in this checkout. After the tests and local build pass, publish the prepared assets manually:
 
 ```powershell
-gh release create v1.0.5 ./dist/Tqsim-v1.0.5.zip ./dist/Tqsim-v1.0.5.zip.sha256 --repo SamiAlmouss/Tqsim --target main --title 'Tqsim v1.0.5' --notes-file CHANGELOG.md
-gh release view v1.0.5 --repo SamiAlmouss/Tqsim
+gh release create v1.0.6 ./dist/Tqsim-v1.0.6.zip ./dist/Tqsim-v1.0.6.zip.sha256 --repo SamiAlmouss/Tqsim --target main --title 'Tqsim v1.0.6' --notes-file CHANGELOG.md
+gh release view v1.0.6 --repo SamiAlmouss/Tqsim
 # After both assets are available, deploy the matching main installer:
 git push origin main
 ```
 
-Publish both v1.0.5 assets before updating main/install.ps1, whose required-file validation includes the new deletion helper. Confirm the release assets and main installer match before testing the exact public command in disposable Windows PowerShell 5.1 and PowerShell 7 sessions:
+Publish both v1.0.6 assets before updating main/install.ps1, whose required-file validation includes the encryption, error and deletion helpers. Confirm the release assets and main installer match before testing the exact public command in disposable Windows PowerShell 5.1 and PowerShell 7 sessions:
 
 ```powershell
 irm https://raw.githubusercontent.com/SamiAlmouss/Tqsim/main/install.ps1 | iex
 # Open a fresh terminal after installation, then:
 tqsim version -NoLogo
-# Expected: 1.0.5
+# Expected: 1.0.6
 ```
 
-After publication, an existing managed installation can use `tqsim update`, then `tqsim version -NoLogo`. The same public installer can repair/update an older launcher. Live URL installation remains a post-deployment check and has not been performed for unpublished v1.0.5. Use disposable data to test retention/deletion; never use valuable backups as smoke tests.
+After publication, an existing managed installation can use `tqsim update`, then `tqsim version -NoLogo`. The same public installer can repair/update an older launcher. Live URL installation remains a post-deployment check and has not been performed for unpublished v1.0.6. Use disposable data to test retention/deletion; never use valuable backups as smoke tests.
 
 ## Troubleshooting
 

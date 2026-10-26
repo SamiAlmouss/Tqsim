@@ -102,7 +102,7 @@ function Save-TqsimCleanupJournal($Journal,[string]$Path) {
     $stream=$null
     try {
         $bytes=[Text.Encoding]::UTF8.GetBytes(($Journal|ConvertTo-Json -Depth 8))
-        $stream=New-TqsimStream $temp CreateNew Write
+        $stream=New-TqsimPrivateStream $temp
         $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true);$stream.Dispose();$stream=$null
         [IO.File]::Move($temp,$Path,$true)
     } finally {if ($stream) {$stream.Dispose()};if ([IO.File]::Exists($temp)) {[IO.File]::Delete($temp)}}
@@ -116,7 +116,22 @@ function Remove-TqsimVerifiedFile($Entry) {
     # All processing/read handles for this file are closed. Check ancestors again
     # immediately before the exact-path deletion; never recurse or expand wildcards.
     $null=Assert-TqsimDeletionPath $Entry.Path
-    [IO.File]::Delete($Entry.Path)
+    try {[IO.File]::Delete($Entry.Path)} catch {
+        $originalFailure=$_;$base=$_.Exception.GetBaseException()
+        if ((Get-Item -LiteralPath $Entry.Path -Force).Attributes -band [IO.FileAttributes]::ReadOnly) {throw (New-TqsimUserError 'SOURCE_READ_ONLY' 'SOURCE DELETION FAILED' 'The selected source is marked read-only. Its data and the completed output have been preserved.' 'Remove the read-only attribute only if you intend to delete this exact file; no permissions were broadened.' $base)}
+        if ($base -is [UnauthorizedAccessException]) {
+            $oldDacl=$null
+            try {
+                $oldDacl=Grant-TqsimExactDeletePermission $Entry
+                $check=New-TqsimStream $Entry.Path Open Read;try {Assert-TqsimReceipt $Entry $check} finally {$check.Dispose()}
+                $null=Assert-TqsimDeletionPath $Entry.Path;[IO.File]::Delete($Entry.Path)
+            } catch {
+                $aclFailure=$_
+                if ($oldDacl -and [IO.File]::Exists($Entry.Path)) {try {Restore-TqsimExactDacl $Entry $oldDacl} catch {throw (New-TqsimUserError 'DACL_RESTORE_FAILED' 'SOURCE DELETION FAILED' 'Windows denied deletion and the temporary Delete permission could not be restored. The source remains.' 'Ask an authorized administrator to review this exact file DACL. Completed output remains available; do not rerun the large operation.' $_.Exception)}}
+                throw (New-TqsimUserError 'DELETE_ACCESS_DENIED' 'SOURCE DELETION FAILED' 'Windows denied source deletion. A minimum per-file Delete permission adjustment was not permitted or did not resolve the denial.' 'Completed output is preserved. Grant Delete permission to your account or ask an authorized administrator to clean up the exact source files. Do not rerun split/merge; no elevation was attempted.' $aclFailure.Exception)
+            }
+        } elseif (($base.HResult -band 65535) -in 32,33) {throw (New-TqsimUserError 'SOURCE_LOCKED' 'SOURCE DELETION FAILED' 'Another process appears to be holding the selected source file open.' 'Close the application using this file, then review the completed output before manually cleaning up the exact source. Do not rerun split/merge.' $base)} else {throw (New-TqsimUserError 'DELETE_IO_FAILURE' 'SOURCE DELETION FAILED' 'A disk or filesystem error prevented source deletion. The exact cause is available with -Diagnostics.' 'Keep the completed output and remaining sources. Check disk health and permissions before manual cleanup.' $base)}
+    }
     if ([IO.File]::Exists($Entry.Path)) {throw "Deletion did not remove $($Entry.Path)"}
 }
 function Invoke-TqsimVerifiedSourceDeletion($Context,[string]$JournalDirectory,[string]$Operation) {
@@ -130,7 +145,7 @@ function Invoke-TqsimVerifiedSourceDeletion($Context,[string]$JournalDirectory,[
         if ($entry.SHA256 -notmatch '^[a-fA-F0-9]{64}$') {throw 'Missing completed streaming hash; cleanup refused.'}
     }
     foreach ($entry in $targets) {if (@($protected|Where-Object {$_.Path -ieq $entry.Path -or $_.Identity -ceq $entry.Identity}).Count) {throw 'Deletion target collides with protected output.'}}
-    $journalPath=Join-Path $JournalDirectory ('.tqsim-cleanup-'+[guid]::NewGuid()+'.json')
+    $journalPath=Join-Path (Get-TqsimRecoveryDirectory) ('.tqsim-cleanup-'+[guid]::NewGuid()+'.json')
     $journal=[ordered]@{application='Tqsim';journalVersion=1;operation=$Operation;authorizedDeleteSource=$true;independentReadBackVerified=$Context.ReadBackVerified;createdUtc=[datetime]::UtcNow.ToString('o');state='prepared';targets=@($targets|Select-Object Path,Identity,Length,SHA256,Status);protected=@($protected|Select-Object Path,Identity,Length,SHA256)}
     Save-TqsimCleanupJournal $journal $journalPath
     if (!$Context.ReadBackVerified) {Write-Warning -WarningAction Continue 'Independent read-back verification is disabled. Source deletion is irreversible.'}
@@ -146,12 +161,15 @@ function Invoke-TqsimVerifiedSourceDeletion($Context,[string]$JournalDirectory,[
             Save-TqsimCleanupJournal $journal $journalPath
         }
         $journal.state='completed';Save-TqsimCleanupJournal $journal $journalPath
+        $null=Assert-TqsimDeletionPath $journalPath;[IO.File]::Delete($journalPath)
     } catch {
         $failure=$_;$journal.state='incomplete'
         # Keep the write-ahead "deleting" entry if deletion or its acknowledgement
         # was interrupted. A manual check is required; journals never authorize retries.
-        try {Save-TqsimCleanupJournal $journal $journalPath} catch {Write-Warning "Could not update cleanup journal: $($_.Exception.Message)"}
-        throw [IO.IOException]::new("$Operation streaming completed; cleanup incomplete: $deleted deleted, $($targets.Count-$deleted) remaining/unconfirmed. Journal: $journalPath. $($failure.Exception.Message)",$failure.Exception)
+        $hasPartial=$deleted -gt 0 -or @($targets|Where-Object {![IO.File]::Exists($_.Path)}).Count -gt 0
+        $recovery=if ($hasPartial) {try {Save-TqsimCleanupJournal $journal $journalPath} catch {Write-Warning 'Recovery acknowledgement failed; preserve the existing write-ahead record.'};"Recovery record: $journalPath"} else {$null=Assert-TqsimDeletionPath $journalPath;[IO.File]::Delete($journalPath);'No source files were deleted; no partial-cleanup journal is needed.'}
+        $reason=if ($failure.Exception.Data.Contains('TqsimCode')) {$failure.Exception.Message} else {'Cleanup stopped because of a file, identity, permission, cancellation or filesystem error. Use -Diagnostics for details.'}
+        throw (New-TqsimUserError 'CLEANUP_INCOMPLETE' "$Operation COMPLETED — CLEANUP INCOMPLETE" "$deleted deleted, $($targets.Count-$deleted) remaining/unconfirmed. $reason" "Completed output is preserved. $recovery Do not rerun the completed large operation; review remaining files for manual cleanup." $failure.Exception)
     }
-    return "Source deletion: COMPLETED ($deleted files). Journal: $journalPath"
+    return "Source deletion: COMPLETED ($deleted files)."
 }

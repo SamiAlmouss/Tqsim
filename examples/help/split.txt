@@ -1,8 +1,12 @@
 SPLIT
   tqsim split -File <source> -Size <size> [-Output <directory>]
-              [-ds <true|false>] [-verify <true|false>]
+              [-ds <true|false>] [-verify <true|false>] [-encrypt <true|false>]
 
 OPTIONS
+  -encrypt      true or false (case insensitive). Default: false. Split only.
+                true securely prompts twice for a 12..1024-character passphrase.
+                AES-256-GCM encryption uses authenticated bounded records.
+                There is no password/key command-line option or recovery service.
   -File         Original binary file; retained unless -ds true is explicit.
   -ds           true or false (case insensitive). Default: false, keep source.
                 true deletes only after required streaming/publication checks
@@ -25,13 +29,18 @@ SIZES AND INTEGRITY
   Streaming uses bounded memory for data, Int64 counts and SHA-256 hashes.
   Parts and the .tqsim.json manifest are never silently overwritten.
   Empty input produces zero parts and the empty-stream SHA-256 manifest.
+  Unencrypted part bytes and schema 1 remain unchanged and merge without secrets.
+  Encrypted schema 2 accounts for 28 bytes framing/tag overhead per record;
+  physical parts never exceed Size. Minimum encrypted Size: 29 bytes.
+  -verify false never disables encryption authentication. Keep your password:
+  if lost, your encrypted archive cannot be recovered. Do not redirect prompts.
 
 DELETE SOURCE WARNING
   Delete Source is irreversible. Use true only when the generated data has
   been verified and is stored safely. SHA-256 is not an independent backup
   and does not guarantee future storage durability. Extra verification I/O
   and locks are required. Unsafe links/identities cause deletion to fail closed.
-  Cleanup journals are retained for auditing; no automatic cleanup retry.
+  Successful cleanup removes its record; partial/interrupted cleanup keeps a private recovery record. No automatic retry.
   -ds true -verify false is an explicit fast mode with less integrity assurance:
   no independent output read-back occurs. Successful writes and flush do not
   guarantee durable storage under every device or power-failure condition.
@@ -44,6 +53,7 @@ EXAMPLES
   tqsim split -File "D:\backup.iso" -Size 2GB -ds false
   tqsim split -File "D:\backup.iso" -Size 2GB -ds true
   tqsim split -File "D:\backup.iso" -Size 2GB -ds true -verify false
+  tqsim split -File "D:\backup.iso" -Size 2GB -encrypt true
 
 HELP
   tqsim help split

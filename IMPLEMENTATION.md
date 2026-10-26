@@ -1,3 +1,33 @@
+# Tqsim 1.0.6 implementation and validation
+
+Version 1.0.6 adds opt-in authenticated encryption, same-directory merge output, private recovery records and narrowly scoped deletion-permission handling. Legacy unencrypted schema 1 and part bytes retain their meaning. No user ISO/backup, global installation, Git commit, push or publication was used. Historical reports below describe their own releases only.
+
+## Implementation map
+
+- `src/Core/Encryption.ps1` and `Crypto.cs` implement schema 2, strict metadata validation, secure interactive secret entry, PBKDF2-SHA256 (600,000 iterations), separately derived AES-256-GCM and manifest-HMAC keys, unique prefix/counter nonces and bounded 4 MiB authenticated records. Physical parts include framing and never exceed Size. See `docs/ENCRYPTED-FORMAT-v1.md` for the complete interoperable wire format and security limitations.
+- `src/Core/Tqsim.psm1` dispatches opt-in encrypted splitting and automatic encrypted merging/verification, while retaining legacy streaming. Default merge publishes the original filename directly beside the manifest; explicit Output is respected. Collision protection remains. Plaintext is authenticated before publication and temporary decrypted output is created atomically with an owner-only protected Windows DACL.
+- `src/Core/Errors.ps1` provides readable structured errors, private file creation and minimal per-file ACL repair. Diagnostics retains exception type, source line, stack and inner exceptions. Password errors and corrupted archives share a safe authentication-failure message; missing parts identify the affected file.
+- `src/Core/Deletion.ps1` preserves identity/length/time/read-lock checks and write-ahead cleanup. Only ds=true may grant the current SID the exact source file's Delete right, and only when existing WRITE_DAC permissions permit it. No ownership takeover, parent/drive ACL changes, FullControl grant or automatic elevation occurs. A failed retry restores the prior DACL. Read-only files and sharing violations receive specific guidance.
+- Recovery records are privately created under `%LOCALAPPDATA%\Tqsim\Recovery`. Fully successful cleanup removes its own record. A failure before any deletion removes a pointless record; partial deletion or uncertain interrupted deletion keeps exact state for manual reconciliation. Unrelated recovery records are untouched. Completed output survives cleanup failure; users need not repeat processing.
+- `src/Commands/CLI.ps1`, entry point, help, README and changelog add strict split-only encrypt=true|false, default false. Existing ds=false/verify=true, aliases, diagnostics, three logos, colors and two-row progress remain. Merge does not accept encrypt or a password argument.
+- Installer, uninstaller and release builder include the three new core files and format specification. Installation rollback also accounts for the new documentation directory. Binary engine changes are confined to encrypted dispatch and the requested destination/error/cleanup behavior.
+- New tests: Encryption.Tests.ps1, LegacyCompatibility.Tests.ps1, RecoveryPermissions.Tests.ps1 and authentic version-generated fixtures. Existing deletion/installer/CLI tests were updated for intentionally changed behavior. Developer-only scripts/test-crypto-integration.ps1 measures disposable data; tests/profilers are excluded from the release.
+
+## Behavior, errors and limits
+
+`split -File data.bin -Size 1GB -encrypt true` requests a hidden password twice (12 through 1,024 characters); merge/verify request it once after automatic detection. No password option exists. Losing the password makes recovery impossible. Normal errors explain wrong password/corruption, missing parts, existing destination, locked/read-only source or insufficient deletion permission; Diagnostics supplies technical details. Cancellation and authentication failure preserve sources and do not publish partial plaintext.
+
+Authentication is mandatory even with verify=false. That switch skips only the independent read-back pass. Processing stays one input pass plus zero/one read-back, with fixed-size payload buffers. Metadata and held cleanup handles scale with part count. Private temporary plaintext is removed on failure; deletion is not secure erasure. Multi-file cleanup is not atomic, and crash records require manual reconciliation. No automatic UAC helper or recovery retry is supplied. Hardware power-loss guarantees, elevated administrator operation and external cryptographic review have not been established.
+
+## Compatibility and measured validation
+
+Authentic static fixtures were produced using the archived 1.0.2, 1.0.3, 1.0.4 and 1.0.5 releases before implementation. Each passes default and explicit-destination restoration without changing its original manifest bytes or requesting a secret. They represent genuine release-generated archives, not a test of unavailable historical cloud backups. Legacy unsigned hashes retain their original trust limitations.
+
+The final test counts, runtime versions, independent Python cryptographic cross-check, NIST vector, actual 5 GiB + 17-byte runs, measured timings, package validation and limitations are recorded in `docs/VALIDATION-v1.0.6.md` in the source repository. All original tests remain. Earlier release ZIP/checksum hashes are checked unchanged. Live installation via the public URL is a post-publication check and remains unexecuted for unpublished 1.0.6.
+
+Release assets: `dist/Tqsim-v1.0.6.zip` and `dist/Tqsim-v1.0.6.zip.sha256`. Publication and installed-command update instructions are in README.md; no publication or installed update was performed.
+
+---
 # Tqsim 1.0.5 implementation and validation
 
 This release diagnoses and removes redundant data passes, adds strict optional verification, and retains the existing streaming architecture and terminal appearance. Version was promoted only after the pre-version full suites passed. No original ISO/.smm backup or other user data was used. Nothing was installed globally, committed, pushed or published.

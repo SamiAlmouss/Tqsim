@@ -1,0 +1,45 @@
+{
+  "application": "Tqsim",
+  "applicationVersion": "1.0.2",
+  "manifestVersion": 1,
+  "operationId": "5a7eb5e4-448d-4ed8-b201-21afac53ec97",
+  "originalFileName": "legacy-1.0.2.bin",
+  "originalSize": 65553,
+  "partSize": 16384,
+  "totalParts": 5,
+  "hashAlgorithm": "SHA256",
+  "originalSHA256": "d9a09ac2f685d83e56623348912b65a368d277e87a9c7c60ba0be3e6b13fe099",
+  "createdUtc": "2026-10-26T19:21:42.5188410Z",
+  "parts": [
+    {
+      "sha256": "b9445ac1f61a289820e5141ef5946a29fa1b73d87b3c34e7bd61d262cb7cbf2e",
+      "fileName": "legacy-1.0.2.bin.part0001",
+      "size": 16384,
+      "index": 1
+    },
+    {
+      "sha256": "42851e12f9c0ae9db92aadf18b314e22d93177d0b3d07499c06af6951e5d9410",
+      "fileName": "legacy-1.0.2.bin.part0002",
+      "size": 16384,
+      "index": 2
+    },
+    {
+      "sha256": "164216ec30ba54d189cac02ec55d126af0f689dcedda75428f84bd3eff9c1575",
+      "fileName": "legacy-1.0.2.bin.part0003",
+      "size": 16384,
+      "index": 3
+    },
+    {
+      "sha256": "38450033ad177f8d07f198617fb8ce0caf7ab6d8d8d474c49b469b5dfda1e56f",
+      "fileName": "legacy-1.0.2.bin.part0004",
+      "size": 16384,
+      "index": 4
+    },
+    {
+      "sha256": "7eebdf7564dd60212723f225969c5c69b75022e34156756616a801436965c465",
+      "fileName": "legacy-1.0.2.bin.part0005",
+      "size": 17,
+      "index": 5
+    }
+  ]
+}

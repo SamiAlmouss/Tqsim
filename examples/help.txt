@@ -40,4 +40,7 @@ NOTES
   Split/merge: -ds true|false (Default: false), -verify true|false (Default: true).
   Omitted optional values use defaults. -verify false skips independent read-back.
   -ds true is irreversible; combine with -verify false only accepting its risks.
+  Split alone accepts -encrypt true|false (Default: false), with hidden prompts.
+  Merge detects encryption automatically and restores directly beside the parts
+  unless -Output is supplied. Old unencrypted archives need no password.
   Exit codes: 0 success, 1 operational failure, 2 usage, 3 invalid integrity.
