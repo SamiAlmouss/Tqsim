@@ -1,0 +1,140 @@
+function Resolve-TqsimDeleteSourceOption([string]$Value='false') {
+    if ($Value -ieq 'true') {return $true}
+    if ($Value -ieq 'false') {return $false}
+    throw [ArgumentException]::new('-ds requires the string true or false. Default: false (keep source).')
+}
+function Assert-TqsimDeletionPath([string]$Path) {
+    $full=[IO.Path]::GetFullPath($Path)
+    Assert-TqsimRegular $full
+    $parent=[IO.DirectoryInfo]::new([IO.Path]::GetDirectoryName($full))
+    while ($parent) {
+        if ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) {throw "Unsafe reparse-point ancestor: $full"}
+        $parent=$parent.Parent
+    }
+    if ($full.IndexOf(':',2) -ge 0) {throw "Alternate data streams are not supported for deletion: $full"}
+    return $full
+}
+function Get-TqsimFileIdentity($Stream) {
+    # A pathname, length and timestamp alone cannot detect same-content substitution.
+    # Fail closed on platforms/filesystems without a usable Windows file identity.
+    if (!$IsWindows) {throw 'Delete Source requires Windows file identity support.'}
+    if (!('TqsimFileIdentity' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class TqsimFileIdentity {
+    [StructLayout(LayoutKind.Sequential)] struct Info {
+        public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh,
+            WriteLow, WriteHigh, Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetFileInformationByHandle(SafeFileHandle file, out Info info);
+    public static string Get(SafeFileHandle file) {
+        Info i;
+        if (!GetFileInformationByHandle(file, out i)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (i.Links != 1) throw new InvalidOperationException("Delete Source refuses hard-linked files.");
+        if (i.IndexHigh == 0 && i.IndexLow == 0) throw new InvalidOperationException("Filesystem did not provide a usable file identity.");
+        return i.Volume.ToString("X8")+":"+i.IndexHigh.ToString("X8")+i.IndexLow.ToString("X8");
+    }
+}
+'@
+    }
+    return [TqsimFileIdentity]::Get($Stream.SafeFileHandle)
+}
+function Get-TqsimStreamDigest($Stream) {
+    $Stream.Position=0
+    $hash=[Security.Cryptography.SHA256]::Create()
+    try {return ConvertTo-TqsimHex ($hash.ComputeHash($Stream))} finally {$hash.Dispose();$Stream.Position=0}
+}
+function New-TqsimDeletionContext {
+    return [pscustomobject]@{Handles=[Collections.Generic.List[object]]::new();Entries=[Collections.Generic.List[object]]::new()}
+}
+function Close-TqsimDeletionContext($Context) {
+    foreach ($handle in $Context.Handles) {$handle.Dispose()}
+    $Context.Handles.Clear()
+}
+function Add-TqsimDeletionFile($Context,[string]$Path,[string]$ExpectedHash='',[long]$ExpectedLength=-1,[switch]$Target) {
+    $full=Assert-TqsimDeletionPath $Path
+    if (@($Context.Entries|Where-Object {$_.Path -ieq $full}).Count) {throw "Duplicate cleanup/protected path: $full"}
+    $stream=New-TqsimStream $full Open Read
+    $Context.Handles.Add($stream)
+    $identity=Get-TqsimFileIdentity $stream
+    $digest=Get-TqsimStreamDigest $stream
+    if (($ExpectedLength -ge 0 -and $stream.Length -ne $ExpectedLength) -or ($ExpectedHash -and $digest -ine $ExpectedHash)) {throw [IO.InvalidDataException]::new("Independent verification failed: $full")}
+    $entry=[pscustomobject]@{Path=$full;Identity=$identity;Length=$stream.Length;SHA256=$digest;Target=[bool]$Target;Status='pending';Stream=$stream}
+    $Context.Entries.Add($entry)
+    return $entry
+}
+function Assert-TqsimUnsharedParts([string]$Manifest,$Metadata) {
+    $directory=[IO.Path]::GetDirectoryName($Manifest)
+    $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($part in $Metadata.parts) {$null=$names.Add($part.fileName)}
+    foreach ($other in Get-ChildItem -LiteralPath $directory -Filter '*.tqsim.json' -Force -File) {
+        if ($other.FullName -ieq $Manifest) {continue}
+        $null=Assert-TqsimDeletionPath $other.FullName
+        # Invalid neighbouring manifests make ownership ambiguous: do not guess.
+        $m=Read-TqsimManifest $other.FullName
+        foreach ($part in $m.parts) {if ($names.Contains($part.fileName)) {throw "Automatic deletion refused: part '$($part.fileName)' is shared with $($other.FullName)."}}
+    }
+}
+function Save-TqsimCleanupJournal($Journal,[string]$Path) {
+    $directory=[IO.Path]::GetDirectoryName($Path)
+    $null=New-TqsimDestination $directory 0
+    if ([IO.File]::Exists($Path)) {$null=Assert-TqsimDeletionPath $Path}
+    $temp=Join-Path $directory ('.tqsim-'+[guid]::NewGuid()+'.tmp')
+    $stream=$null
+    try {
+        $bytes=[Text.Encoding]::UTF8.GetBytes(($Journal|ConvertTo-Json -Depth 8))
+        $stream=New-TqsimStream $temp CreateNew Write
+        $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true);$stream.Dispose();$stream=$null
+        [IO.File]::Move($temp,$Path,$true)
+    } finally {if ($stream) {$stream.Dispose()};if ([IO.File]::Exists($temp)) {[IO.File]::Delete($temp)}}
+}
+function Remove-TqsimVerifiedFile($Entry) {
+    $null=Assert-TqsimDeletionPath $Entry.Path
+    $stream=New-TqsimStream $Entry.Path Open Read
+    try {
+        if ((Get-TqsimFileIdentity $stream) -cne $Entry.Identity -or $stream.Length -ne $Entry.Length -or (Get-TqsimStreamDigest $stream) -cne $Entry.SHA256) {throw "Deletion target changed: $($Entry.Path)"}
+    } finally {$stream.Dispose()}
+    # All processing/read handles for this file are closed. Check ancestors again
+    # immediately before the exact-path deletion; never recurse or expand wildcards.
+    $null=Assert-TqsimDeletionPath $Entry.Path
+    [IO.File]::Delete($Entry.Path)
+    if ([IO.File]::Exists($Entry.Path)) {throw "Deletion did not remove $($Entry.Path)"}
+}
+function Invoke-TqsimVerifiedSourceDeletion($Context,[string]$JournalDirectory,[string]$Operation) {
+    $targets=@($Context.Entries|Where-Object Target)
+    $protected=@($Context.Entries|Where-Object {!$_.Target})
+    if (!$protected.Count -or !$targets.Count) {throw 'Deletion requires explicit targets and independently verified protected data.'}
+    # Validate the entire set before the first destructive action. Protected data
+    # remains locked against writing/renaming through the whole cleanup.
+    foreach ($entry in $Context.Entries) {
+        $null=Assert-TqsimDeletionPath $entry.Path
+        if ((Get-TqsimFileIdentity $entry.Stream) -cne $entry.Identity -or $entry.Stream.Length -ne $entry.Length -or (Get-TqsimStreamDigest $entry.Stream) -cne $entry.SHA256) {throw [IO.InvalidDataException]::new("Pre-cleanup verification failed: $($entry.Path)")}
+    }
+    foreach ($entry in $targets) {if (@($protected|Where-Object {$_.Path -ieq $entry.Path -or $_.Identity -ceq $entry.Identity}).Count) {throw 'Deletion target collides with protected output.'}}
+    $journalPath=Join-Path $JournalDirectory ('.tqsim-cleanup-'+[guid]::NewGuid()+'.json')
+    $journal=[ordered]@{application='Tqsim';journalVersion=1;operation=$Operation;authorizedDeleteSource=$true;createdUtc=[datetime]::UtcNow.ToString('o');state='prepared';targets=@($targets|Select-Object Path,Identity,Length,SHA256,Status);protected=@($protected|Select-Object Path,Identity,Length,SHA256)}
+    Save-TqsimCleanupJournal $journal $journalPath
+    foreach ($entry in $targets) {$entry.Stream.Dispose()}
+    $deleted=0
+    try {
+        for ($i=0;$i -lt $targets.Count;$i++) {
+            $journal.state='cleaning';$journal.targets[$i].Status='deleting'
+            Save-TqsimCleanupJournal $journal $journalPath
+            Remove-TqsimVerifiedFile $targets[$i]
+            $deleted++;$journal.targets[$i].Status='deleted'
+            Save-TqsimCleanupJournal $journal $journalPath
+        }
+        $journal.state='completed';Save-TqsimCleanupJournal $journal $journalPath
+    } catch {
+        $failure=$_;$journal.state='incomplete'
+        # Keep the write-ahead "deleting" entry if deletion or its acknowledgement
+        # was interrupted. A manual check is required; journals never authorize retries.
+        try {Save-TqsimCleanupJournal $journal $journalPath} catch {Write-Warning "Could not update cleanup journal: $($_.Exception.Message)"}
+        throw [IO.IOException]::new("$Operation data verified; cleanup incomplete: $deleted deleted, $($targets.Count-$deleted) remaining/unconfirmed. Journal: $journalPath. $($failure.Exception.Message)",$failure.Exception)
+    }
+    return "Source deletion: COMPLETED ($deleted files). Journal: $journalPath"
+}

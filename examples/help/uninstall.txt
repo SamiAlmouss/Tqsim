@@ -1,0 +1,15 @@
+UNINSTALL
+  tqsim uninstall
+
+  Requires a managed current-user installation. Removes known Tqsim application
+  files and its exact PATH entry. Preserves user split files and manifests.
+  Restart other terminals to refresh their PATH.
+
+OPTIONS
+  -NoLogo       Hide branding.
+  -Quiet        Suppress CLI branding; the uninstaller may report its result.
+  -Diagnostics  Add development error details.
+  -NoColor      Disable CLI colors.
+
+HELP SAFETY
+  tqsim help uninstall and tqsim uninstall --help never remove files or PATH.

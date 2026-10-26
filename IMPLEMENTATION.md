@@ -1,4 +1,79 @@
+# Tqsim 1.0.4 implementation and validation
+
+The v1.0.4 change adds strict, opt-in source deletion and stable random terminal colors, with the requested two-line progress display. Existing streaming loops, Int64 arithmetic, manifest schema 1, help aliases, collision protection, StrictMode and diagnostics are retained. Initial documentation edits and untracked v1.0.3 CLI/branding files already present in this working tree were preserved. No Git commit, push, publication, global application update or access to the user's original ISO/backup was performed.
+
+## Modified and added files
+
+| Files | v1.0.4 change |
+| --- | --- |
+| src/Core/Deletion.ps1 (new) | Strict true/false parsing, exact-path/ancestor checks, Windows file IDs, single-link checks, streaming verification, restrictive read locks, shared-manifest refusal and journalled deletion |
+| src/Core/Tqsim.psm1 | Opt-in verification/cleanup boundaries around the existing split/merge pipelines; compact two-line progress status and accurate final completed-part count |
+| src/Commands/CLI.ps1 | Accept ds only for split/merge, validate explicitly, route help safely and keep render state even with NoLogo |
+| src/Console/Branding.ps1 | Eight-color palette, independent bounded color draws, stable invocation state, two-line renderer and ConsoleColor/NoColor fallbacks; three logo literals unchanged |
+| examples/help.txt; examples/help/split.txt; examples/help/merge.txt | ds syntax, retention defaults, irreversible deletion and partial-cleanup warnings |
+| install.ps1; uninstall.ps1; scripts/build-release.ps1 | Package, validate and remove only the additional owned Deletion.ps1 helper; preserve the previous installer bootstrap |
+| version.json; tests/CLI.Tests.ps1; tests/Installer.Tests.ps1 | Authoritative version 1.0.4 and matching package/installer fixtures |
+| tests/DeleteSource.Tests.ps1; tests/Colors.Tests.ps1 (new) | Real disposable deletion, safe retention, input errors, faults, interruption, cross-volume/link/ownership checks and deterministic rendering/color regressions |
+| tests/fixtures/CleanupTerminationHarness.ps1 (new) | Disposable child paused after a real deletion, allowing the test to force termination before journal acknowledgement |
+| scripts/test-delete-source.ps1 (new) | Reproducible random streaming data, retained/deleted-source multi-part round trips, independent final SHA-256 and JSON evidence |
+| README.md; CHANGELOG.md; IMPLEMENTATION.md | Behavior, limitations, validation and manual release/update steps |
+
+## Exact ds behavior
+
+Only `-ds true` authorizes deletion; omitted or explicit false always retains source data. String matching is case insensitive and does not cast nonempty strings to Boolean. Missing/empty/yes/no/1/0/other values fail with usage code 2. Split and merge/merg accept it; other operations reject it. Help requests never execute processing/deletion. There is no extra confirmation after valid explicit true.
+
+Split: independently reopen and validate the published manifest and all parts, verify individual lengths/hashes and ordered whole-file hash/count, reread the source, and revalidate its identity before deleting only that original. Merge: verify inputs before and during streaming, safely publish the output, independently reopen/hash/size-check it, then remove the exact listed parts and selected manifest last. The restored output is never a cleanup target. Defaults retain the original behavior and schema; completion text now states source retention.
+
+Deletion checks Windows volume/file IDs, refuses hard links, checks file and ancestor reparse points, checks exact normalized paths and output collisions, and holds verified data open with restrictive sharing. Ownership checks examine other manifests in the selected directory; invalid neighbours or shared part names refuse deletion. Hashing streams files with bounded buffers; metadata and held handles grow with the number of parts. Failure to obtain verification or resources before cleanup retains sources.
+
+## Cleanup safety and limitations
+
+A unique `.tqsim-cleanup-<GUID>.json` is written next to the protected destination. Each update writes a unique temporary file, flushes it to disk and replaces the journal. It records authorized intent, exact identities/paths/hashes, protected output and per-target pending/deleting/deleted states. Intent is persisted before deletion and acknowledgement afterward. Success journals remain as an audit record. Journals never execute paths or silently resume cleanup.
+
+Multi-file cleanup is not atomic. Failure returns operational code 1, reports confirmed deleted and remaining/unconfirmed counts, and preserves the verified output. The selected manifest remains until all its parts were removed. Forced termination between deletion and acknowledgement leaves a deleting entry that must be checked manually; the journal does not falsely call it deleted or pending. A failed journal write before the first deletion prevents cleanup. No automatic recovery is implemented.
+
+All processing/read handles for deletion targets are disposed before deletion. Immediate identity/hash checks and a final path/ancestor check reduce substitution risks, but a small close-to-delete race remains. Use directories under your control; this is not a transaction against privileged concurrent filesystem attacks. Ownership cannot discover references from unknown directories. NTFS was used for testing; network filesystem semantics and hardware/power-loss durability are not guaranteed. SHA-256 detects differences and does not replace an independent backup or guarantee future durability.
+
+## Rendering
+
+The old yellow information line was the Status argument of native Write-Progress. Only routine progress was replaced; warning/error rendering remains unchanged. The first row contains the bar and percent, the second contains state, part counts, exact byte counts, speed, elapsed time and ETA. Lines are cropped to width minus one to avoid wrapping; narrow terminals can hide trailing details. Redraws reuse two console rows without clearing the screen or changing global terminal colors/cursor visibility.
+
+Logo color uses one cryptographic draw from eight approved RGB accents. The information color uses an independent draw from the seven remaining accents, so colors are distinct without retry loops. Both and the logo remain fixed through verification, resize and completion. New invocations draw again and may repeat by chance. Exactly three unchanged literal logos remain registered. NoLogo suppresses logo selection while progress retains its own state. Quiet suppresses routine UI. NoColor/NO_COLOR suppress decorative colors; redirected output has no progress/ANSI. True-color terminals use RGB, other interactive consoles use bright ConsoleColor equivalents.
+
+## Validation results
+
+Final full Pester 4.10.1 runs on 2026-10-26:
+
+| Runtime | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| PowerShell 7.6.5, bundled | 168 | 0 | 0 |
+| PowerShell 7.6.9, installed Windows Store runtime | 168 | 0 | 0 |
+
+All 136 existing tests remain; 32 new tests cover parsing, default/false retention, Unicode/spaces, zero bytes, exact/multiple parts, independent verification failures, write failures/cancellation, collisions, C-to-D/D-to-C processing, hard links/junctions, same-content file substitution, shared/invalid neighbouring manifests, unrelated files/sets, read-only deletion failure, journal write failure, partial cleanup and deterministic color/two-line rendering. The real Windows launcher and direct CLI are exercised. The final forced-termination test kills only its own disposable child after an actual first-part deletion but before acknowledgement: output SHA-256 stays correct, the manifest and remaining ten parts remain, and the journal records that first target as deleting/unconfirmed. Installer tests retain native Windows PowerShell 5.1.26100.9711-to-7 handoff, child failure/parent survival, safe ZIP/checksum, rollback, mocked persistent PATH/network, update and uninstall checks. No global installation was changed.
+
+Real random, non-sparse integration file: **5,368,709,137 bytes (5 GiB + 17)**. Executed using scripts/test-delete-source.ps1 with part sizes 1GB, 2GB and 4GB. Each case split, independently verified, merged and independently checked the final hash/length:
+
+| Part size | Exact part lengths in bytes | ds | Result | Elapsed |
+| --- | --- | --- | --- | --- |
+| 1GB | 1073741824 x 5; 17 | false | Original, parts and manifest retained at verification time; round trip passed | 00:02:13.9466306 |
+| 2GB | 2147483648 x 2; 1073741841 | true | Verified original deleted after split; three parts/manifest deleted after verified merge | 00:05:11.5512944 |
+| 4GB | 4294967296; 1073741841 | true | Verified input deleted after split; two parts/manifest deleted after verified merge | 00:06:04.3905455 |
+
+All three final hashes matched the independently computed initial source SHA-256:
+
+`192AF8BAD471CFCA221A4B2AE41E655A685AD9C643F573B83BC9DD418EA95320`
+
+Evidence is retained in `.test-work/delete-integration/1f58fe24-d2e4-4375-a448-04fad64c77a6/results.json`, plus cleanup journals and disposable retained data. The 4GB stage intentionally uses and deletes the previous stage's reconstructed disposable file; its earlier reported hash was verified before that explicit deletion. Final Pester records are `.test-work/v104-final-765.xml` and `v104-final-store.xml`.
+
+The actual two-row renderer was also exercised in an interactive 80-column Windows pseudo-console, progressing from 25% through 100%, with separate bar/status rows and no operation failure. Automated tests check stable colors during redraw/resize, literal logos, NoColor/NO_COLOR and clean redirection. Windows Terminal/VS Code visual inspection and network storage/power-loss testing were not performed. No 200GB or 1TB physical file test was performed; the retained Int64 arithmetic suite covers those numeric sizes.
+
+Release outputs are `dist/Tqsim-v1.0.4.zip` and `.zip.sha256`; the checksum is external to avoid a self-referential package hash. The build refuses existing archives. Manual publishing and installed-command update steps are in README.md. Live installation from the public URL remains pending authorized deployment. Historical v1.0.3 findings follow for reference; they describe the preceding release, not the current colors/cleanup.
+
+---
+
 # Tqsim 1.0.3 implementation report
+
+Installer follow-up: [Windows PowerShell 5.1 bootstrap fix, test results and pending live deployment check](docs/INSTALLER-BOOTSTRAP.md). The root install.ps1 now hands legacy callers to PowerShell 7 without relying on an original script path; the application engine and existing release archives remain unchanged. The report below describes the preceding v1.0.3 CLI/branding upgrade.
 
 ## Upgrade scope and modified files
 

@@ -1,0 +1,20 @@
+UPDATE
+  tqsim update
+
+  Requires a managed installation. Queries the latest stable GitHub Release,
+  checks its ZIP checksum, stages it and switches the selected installation.
+  Preserves the prior working version on failure and never changes split data.
+  Network access is required for updates; split/merge/verify work offline.
+
+OPTIONS
+  -NoLogo       Hide branding.
+  -Quiet        Suppress CLI branding (installer messages may still appear).
+  -Diagnostics  Add development error details.
+  -NoColor      Disable CLI colors (installer uses its own messages).
+
+HELP SAFETY
+  tqsim help update and tqsim update --help perform no network or installation.
+
+EXAMPLES
+  tqsim update
+  tqsim version -NoLogo

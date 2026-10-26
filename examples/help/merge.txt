@@ -1,0 +1,42 @@
+MERGE / MERG
+  tqsim merge [-PartsPath <directory>] [-Manifest <path>]
+              [-Output <directory>] [-Overwrite] [-ds <true|false>]
+  tqsim merg is an identical alias for merge.
+
+OPTIONS
+  -PartsPath    Parts directory; defaults to the current working directory.
+  -Manifest     Explicit .tqsim.json file; required if multiple manifests exist.
+                Parts are resolved relative to the selected manifest.
+  -Output       Output directory; defaults to Output in the manifest directory.
+  -Overwrite    Explicit authorization to replace an existing restored file.
+  -ds           true or false (case insensitive). Default: false, keep sources.
+                true deletes only the selected manifest's ordered input parts
+                and its manifest, after re-reading the published output and
+                verifying its exact length and SHA-256. Manifest is deleted last.
+  -BufferSize   I/O buffer bytes, 4096..67108864; default 4194304.
+  -NoLogo       Hide branding.
+  -Quiet        Suppress routine output and progress; retain errors.
+  -Diagnostics  Add development error details.
+  -NoColor      Disable Tqsim text colors.
+
+INTEGRITY
+  Checks manifest metadata, ordered filenames, lengths and every SHA-256.
+  Checks hashes again while writing and checks the complete restored hash.
+  Publishes the restored file only after verification succeeds.
+  Source parts are retained unless -ds true is explicitly supplied.
+
+DELETE SOURCE WARNING
+  Delete Source is irreversible. Use true only when reconstructed data has
+  been verified and is stored safely. SHA-256 does not replace a backup or
+  guarantee future storage durability. Shared/ambiguous parts are not deleted.
+  Multiple-file cleanup is not atomic. An interruption can leave some parts
+  deleted: the verified output and cleanup journal remain. Errors report
+  deleted and remaining/unconfirmed counts and return nonzero. Journals do
+  not authorize retries: inspect them and the verified output manually.
+
+EXAMPLES
+  tqsim merg
+  tqsim merge -PartsPath "E:\Parts" -Output "D:\Restored"
+  tqsim merg -Manifest "E:\Parts\backup.iso.tqsim.json"
+  tqsim merg -PartsPath "E:\Parts" -ds false
+  tqsim merg -PartsPath "E:\Parts" -ds true

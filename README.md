@@ -15,22 +15,26 @@ Tqsim streams binary data through a reusable 4 MiB buffer, calculates SHA-256 fo
 
 ## Requirements
 
-Windows and PowerShell 7 or newer. If needed, run `winget install --id Microsoft.PowerShell --source winget`, then open `pwsh`. Windows PowerShell 5.1 is not supported. Local NTFS storage is recommended; network share capacity reporting and atomic replacement depend on the filesystem. Destinations containing directory junctions/symlinks are rejected.
+Windows and PowerShell 7 or newer. If needed, run `winget install --id Microsoft.PowerShell --source winget`, then open `pwsh`. File-processing commands require PowerShell 7+. The installer itself also accepts Windows PowerShell 5.1 and hands off automatically to an installed PowerShell 7 runtime. Local NTFS storage is recommended; network share capacity reporting and atomic replacement depend on the filesystem. Destinations containing directory junctions/symlinks are rejected.
 
 ## Install
 
-**Publication prerequisite:** this source checkout does not imply that a GitHub repository or release exists. Before advertising the following command as working, publish the repository and versioned release assets. Replace every `USERNAME` in this README **and the default repository in install.ps1** with the actual owner. Forks must change that default too.
+The public installer uses `SamiAlmouss/Tqsim` and its versioned GitHub Release assets. Local installer fixes become available at the URL below only after the maintainer deploys install.ps1 to main; this change has not been deployed automatically. Forks must explicitly configure their own repository.
 
 ```powershell
-irm https://raw.githubusercontent.com/USERNAME/tqsim/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/SamiAlmouss/Tqsim/main/install.ps1 | iex
 ```
+
+Run the same command from Windows PowerShell 5.1 or PowerShell 7+. In 7+, installation continues in the current process. In 5.1, the installer discovers and probes pwsh.exe (including Windows Store/per-user locations), then runs the already-loaded installer functions in a separate hidden process. It does not depend on `$PSScriptRoot` or `$PSCommandPath`, re-download a moving script, change execution policy, or install PowerShell itself. A child-runtime guard prevents relaunch loops. If no compatible runtime is found, it prints `winget install --id Microsoft.PowerShell --source winget`.
+
+Failures throw a readable error and set `$LASTEXITCODE`; the installer never exits the parent shell used by `irm | iex`. A 5.1 handoff cannot update that parent process PATH: open a fresh terminal after success. [Bootstrap test results and post-deployment verification](docs/INSTALLER-BOOTSTRAP.md) describe the exact checks and the live-URL test still required after deployment.
 
 This runs remote code. A safer alternative lets you download and inspect the installer first:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/USERNAME/tqsim/main/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/SamiAlmouss/Tqsim/main/install.ps1 -OutFile install.ps1
 Get-Content ./install.ps1
-pwsh -NoProfile -File ./install.ps1 -Repository USERNAME/tqsim
+pwsh -NoProfile -File ./install.ps1 -Repository SamiAlmouss/Tqsim
 ```
 
 Installation downloads the latest stable GitHub Release ZIP and its checksum, checks asset names, lengths, SHA-256 and ZIP paths, then stages an immutable version under `%LOCALAPPDATA%\Programs\Tqsim\versions`. The selected version is recorded in `.tqsim-install.json`. A `bin\tqsim.cmd` launcher forwards arguments through `pwsh`; bin is added to the current user's PATH without administrator privileges or profile edits. A piped installer can refresh its session PATH; a child-process installer cannot change the parent terminal, so restart it after installation.
@@ -55,7 +59,7 @@ From this checkout, use `pwsh -NoProfile -File ./tqsim.ps1` in place of `tqsim`.
 For development failures, add `-Diagnostics` to print the exception type, source script, exact line number, PowerShell ScriptStackTrace, and inner exceptions to stderr. Normal mode retains readable errors and the same exit codes. To retry after an incomplete split, choose a fresh output directory; Tqsim refuses to overwrite existing part names:
 
 ```powershell
-pwsh -NoProfile -File ./tqsim.ps1 split -File 'E:\Win11_Arabic_x64v1.iso' -Size 1GB -Output 'E:\Tqsim-parts-v1.0.3' -Diagnostics
+pwsh -NoProfile -File ./tqsim.ps1 split -File 'E:\Win11_Arabic_x64v1.iso' -Size 1GB -Output 'E:\Tqsim-parts-v1.0.4' -Diagnostics
 ```
 
 That example is for a user-initiated retry; automated tests use disposable binary data and never the original ISO.
@@ -64,9 +68,34 @@ Sizes are positive integer bytes, or binary suffixes B, KB/KiB, MB/MiB, GB/GiB, 
 
 Split defaults to `Output` alongside the source. Parts are `disk.iso.part0001`, etc., with numbering width expanded as needed. Empty input produces zero parts and a manifest containing the SHA-256 of the empty stream. Merge and verify default to the current directory. Merge defaults to its `Output` subdirectory. When multiple manifests exist, provide `-Manifest` explicitly. The manifest's directory defines the location of its relative parts, including when `-PartsPath` is also supplied.
 
-Existing split outputs are never overwritten. Merge requires explicit `-Overwrite` to replace a restored file and uses atomic filesystem replacement where supported. Inputs are never automatically removed. A complete preflight integrity pass runs before merge; the writing pass checks hashes again to detect changed parts. Failed output is removed. Ctrl+C unwinds finally blocks; forced termination or power loss can leave `.tqsim-*.tmp` or unreferenced parts. Review these manually before removal. No resumable operations are implemented.
+Existing split outputs are never overwritten. Merge requires explicit `-Overwrite` to replace a restored file and uses atomic filesystem replacement where supported. Inputs are retained unless the new -ds true option is explicitly supplied. A complete preflight integrity pass runs before merge; the writing pass checks hashes again to detect changed parts. Failed output is removed. Ctrl+C unwinds finally blocks; forced termination or power loss can leave `.tqsim-*.tmp` or unreferenced parts. Review these manually before removal. No resumable operations are implemented.
 
-Interactive progress updates at most four times per second, with percentage, current/completed parts, exact bytes, cumulative measured average speed, elapsed time and ETA. Cumulative averaging smooths throughput. Redirected logs omit progress and retain completion/error messages. Quiet suppresses informational output, but failures still go to stderr.
+Interactive progress updates at most four times per second. The progress bar occupies the first line; the second line shows state, current/completed parts, exact bytes, cumulative average speed, elapsed time and ETA. Text is cropped to terminal width to avoid wrapping. Redirected logs omit progress and retain completion/error messages. Quiet suppresses informational output, but failures still go to stderr.
+
+## Delete Source (1.0.4)
+
+`-ds` is supported only by split and merge/merg. Omitted or `-ds false` preserves all sources. Only `true` and `false` are accepted, case insensitive, quoted or unquoted. Missing, empty, yes/no, 1/0 and other values return usage code 2. Help never deletes anything. Explicit `-ds true` authorizes deletion without another prompt.
+
+```powershell
+# Keep the original (default), or explicitly retain it:
+tqsim split -File "D:\Backup\disk.iso" -Size 2GB
+tqsim split -File "D:\Backup\disk.iso" -Size 2GB -ds false
+# Independently verify the published split set, then delete the original:
+tqsim split -File "D:\Backup\disk.iso" -Size 2GB -ds true
+# Keep parts and manifest (default), or explicitly retain them:
+tqsim merg -PartsPath "D:\Backup\Output"
+tqsim merg -PartsPath "D:\Backup\Output" -ds false
+# Independently verify the restored output, then delete its parts/manifest:
+tqsim merg -PartsPath "D:\Backup\Output" -ds true
+```
+
+**Delete Source is irreversible. Use true only when the generated or reconstructed data has been verified and is stored safely.** SHA-256 detects content differences; it does not replace an independent backup or guarantee future storage durability. Keep enough space for the complete destination before deletion begins. Deletion mode costs additional full verification reads and holds file handles proportional to the part count; failures to acquire resources preserve sources before cleanup.
+
+Split reopens the manifest and every published part, checks individual and ordered whole-file hashes/counts/lengths, and independently rereads the original before deleting it. Merge verifies the inputs, publishes via the existing temporary file path, then reopens the final output and verifies its hash and length before deleting only listed inputs, with the manifest last. The output remains locked against writes/renames during cleanup. Source identity uses Windows volume/file IDs, single-link checks and immediate identity/hash/path revalidation. File and ancestor reparse points, hard links, output collisions and unusable identities are rejected in deletion mode. Shared parts or invalid neighbouring manifests in the selected parts directory cause automatic deletion to be refused.
+
+Cleanup writes `.tqsim-cleanup-<GUID>.json` beside the protected destination. The journal records authorization, exact paths, identities, hashes and per-file status, is flushed before each deletion and retained afterward. Multiple-file deletion is **not atomic**. A failure returns nonzero with confirmed deleted and remaining/unconfirmed counts; the verified output remains and the manifest is kept until all parts are removed. A crash/power loss can leave a `deleting` entry whose result is uncertain. Inspect the journal, remaining paths and verified output manually. Journals never authorize an automatic retry or execute recorded paths.
+
+Use deletion mode in directories you control. Closing read handles before exact-path deletion leaves a small final path-replacement race; ancestor checks and restrictive sharing reduce it but cannot provide a filesystem transaction or defeat a privileged concurrent attacker. Ownership scans cover manifests in the selected directory, not unknown references elsewhere. Network filesystem semantics and power-loss durability are not guaranteed. Without `-ds true`, processing retains the existing retention and manifest behavior.
 
 Example completion (illustrative):
 
@@ -99,17 +128,19 @@ Existing named file parameters use one dash and exact full names, case insensiti
 
 Each invocation with branding selects one of exactly three stored designs with `RandomNumberGenerator.GetInt32(0, 3)`. Repeated choices are valid; no forced rotation occurs. Source literals are in `src/Console/Branding.ps1`, with exact reference fixtures in `tests/fixtures/logos`.
 
+For each split or merge invocation, the logo color is sampled once from eight bright accents; the information color is sampled independently from the other seven. Colors and logo remain fixed through progress, verification, completion and resize. Palette: Neon Green `#63EDC6`, Electric Cyan `#53DCEB`, Cyber Blue `#50A8FF`, Neon Purple `#B98CFF`, Hot Magenta `#F36BD2`, Phantom Red `#FF6676`, Amber `#F2B95B`, Ice Blue `#8DE5FF`. Actual warning/error styling remains unchanged. The old yellow information line came from native `Write-Progress`; the two-line renderer now owns only routine progress styling.
+
 | Logo | Literal design | Lines | Theme |
 | --- | --- | ---: | --- |
-| 1 | Original compact TQSIM design shown above | 5 | Neon green `#63EDC6` |
-| 2 | Wide outlined design beginning `_________ _______` | 8 | Electric cyan `#53DCEB` |
-| 3 | Block design beginning `_____._._______`, ending with the colon line | 7 | Warning red `#EF5965` |
+| 1 | Original compact TQSIM design shown above | 5 | Random palette accent |
+| 2 | Wide outlined design beginning `_________ _______` | 8 | Random palette accent |
+| 3 | Block design beginning `_____._._______`, ending with the colon line | 7 | Random palette accent |
 
 Spacing, trailing spaces, punctuation and backslashes are preserved. Layout centers the entire logo using its widest line and separately centers the tagline, version and secure-operation label. Tall terminals get vertical padding based on the selected logo height and the help/body/dashboard space. The terminal background is never changed.
 
-When a design is wider than the terminal, branding uses a compact `TQSIM` label. This is a display fallback, not a fourth registered logo. During active operations, dimension changes reflow the **same** selection and restore its full literal when it fits. Resize reflow prints a fresh block only on dimension changes, without clearing the screen or emitting cursor-position codes; static completed help screens do not run a background resize listener. Native PowerShell progress remains host-managed.
+When a design is wider than the terminal, branding uses a compact `TQSIM` label. This is a display fallback, not a fourth registered logo. During active operations, dimension changes reflow the **same** selection and restore its full literal when it fits. Resize reflow prints a fresh block only on dimension changes, without clearing the screen or emitting cursor-position codes; static completed help screens do not run a background resize listener. Progress uses two separate lines: a bar followed by a status line.
 
-`-NoLogo` suppresses branding and random selection; `-Quiet` also suppresses routine progress. `-NoColor` and `NO_COLOR` disable Tqsim logo/help styling (native host progress may retain host colors). Supported virtual terminals with `WT_SESSION` or `COLORTERM=truecolor/24bit` get the theme RGB values; other interactive hosts use ConsoleColor equivalents. Redirected output uses plain text without ANSI codes, centering padding, animations, or redraws. No animation is implemented, so no `-NoAnimation` flag is advertised. Terminal APIs have a safe 80×25 fallback.
+`-NoLogo` suppresses branding and logo selection; `-Quiet` also suppresses routine progress. `-NoColor` and `NO_COLOR` disable all Tqsim decorative styling, including progress. Supported virtual terminals with `WT_SESSION` or `COLORTERM=truecolor/24bit` get the selected palette RGB values; other interactive hosts use ConsoleColor equivalents. Redirected output uses plain text without ANSI codes, centering padding, animations, or redraws. No animation is implemented, so no `-NoAnimation` flag is advertised. Terminal APIs have a safe 80×25 fallback.
 
 ## Manifest version 1
 
@@ -133,12 +164,12 @@ Part indexes start at 1 without gaps; all but the final part equal partSize; len
 
 ## Update and uninstall
 
-Version 1.0.2 fixes an interactive-progress failure: `[double].001` was parsed as property access, producing a StrictMode error for property `1`. The corrected numeric literal is `[double]0.001`. Progress arithmetic now has direct regression coverage even when tests run with redirected output. The Int64 streaming fix from 1.0.1 remains in place. Existing manifests remain compatible; the manifest schema and existing CLI syntax are unchanged. Version 1.0.3 adds the help compatibility and randomized branding described above while preserving that fix. Once the v1.0.3 release has been published, update the installed global command and check its version:
+Version 1.0.2 fixes an interactive-progress failure: `[double].001` was parsed as property access, producing a StrictMode error for property `1`. The corrected numeric literal is `[double]0.001`. Progress arithmetic now has direct regression coverage even when tests run with redirected output. The Int64 streaming fix from 1.0.1 remains in place. Existing manifests remain compatible; the manifest schema and existing CLI syntax are unchanged. Version 1.0.3 adds the help compatibility and randomized branding described above while preserving that fix. Once the v1.0.4 release has been published, update the installed global command and check its version:
 
 ```powershell
 tqsim update
 tqsim version -NoLogo
-# Expected after updating: 1.0.3
+# Expected after updating: 1.0.4
 ```
 
 If the installed updater is unavailable, download and inspect the current `install.ps1` as described above, then rerun it with your repository name. It installs the latest stable release and preserves prior versions. Updating the application does not modify your original backup, parts, or manifests.
@@ -160,34 +191,41 @@ Invoke-Pester ./tests
 ./scripts/build-release.ps1
 ```
 
-The build produces `dist/Tqsim-v1.0.3.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
+The build produces `dist/Tqsim-v1.0.4.zip` and `.zip.sha256`, including the CLI, module, deployment scripts, help, version metadata, README and license. Existing ZIPs are rejected to avoid accidental replacement. Automated tests use small real binary files and local fixtures. See IMPLEMENTATION.md for actual test results and outstanding deployment/integration coverage. Pester 3 is incompatible with modern PowerShell and is not supported.
 
 ## Publish to GitHub
 
-No publication has been performed by this project generator. Install Git and GitHub CLI, replace USERNAME as above, then run these commands from the repository root:
+No publication or global application update is performed automatically. Review and commit the changes, then use the existing SamiAlmouss/Tqsim repository. Release instructions:
 
 ```powershell
-git init -b main
-git add .
-git commit -m 'Release Tqsim 1.0.3'
-gh auth login
-gh repo create USERNAME/tqsim --public --source . --remote origin --description 'Fast and reliable PowerShell CLI for splitting, merging, and verifying massive files.'
-gh repo edit USERNAME/tqsim --add-topic powershell,file-splitter,file-merger,large-files,sha256,cli,backup,windows
-git push -u origin main
-./scripts/build-release.ps1
-git tag v1.0.3
-git push origin v1.0.3
+# Review, then stage and commit the intended application files and tests.
+git status --short
+git diff
+git add -- tqsim.ps1 src examples install.ps1 uninstall.ps1 scripts tests version.json README.md CHANGELOG.md IMPLEMENTATION.md docs
+git commit -m 'Release Tqsim 1.0.4'
+git tag v1.0.4
+git push origin v1.0.4
 ```
 
-The tag workflow validates syntax/version, runs mandatory tests, builds and publishes assets. Alternatively publish manually **instead of pushing the release tag workflow**:
+No release workflow is configured in this checkout. After the tests and local build pass, publish the prepared assets manually:
 
 ```powershell
-gh release create v1.0.3 ./dist/Tqsim-v1.0.3.zip ./dist/Tqsim-v1.0.3.zip.sha256 --target main --title 'Tqsim v1.0.3' --notes-file CHANGELOG.md
-gh release view v1.0.3 --repo USERNAME/tqsim
-Invoke-WebRequest https://raw.githubusercontent.com/USERNAME/tqsim/main/install.ps1 -Method Head
+gh release create v1.0.4 ./dist/Tqsim-v1.0.4.zip ./dist/Tqsim-v1.0.4.zip.sha256 --repo SamiAlmouss/Tqsim --target main --title 'Tqsim v1.0.4' --notes-file CHANGELOG.md
+gh release view v1.0.4 --repo SamiAlmouss/Tqsim
+# After both assets are available, deploy the matching main installer:
+git push origin main
 ```
 
-Do not run both release publication methods for the same tag. Confirm both assets exist before testing one-command installation. For a real deployment smoke test, use a disposable Windows user account, install, open a fresh terminal, run `tqsim version`, round trip a Unicode filename with spaces, repeat installation, update, uninstall, and confirm user files remain.
+Publish both v1.0.4 assets before updating main/install.ps1, whose required-file validation includes the new deletion helper. Confirm the release assets and main installer match before testing the exact public command in disposable Windows PowerShell 5.1 and PowerShell 7 sessions:
+
+```powershell
+irm https://raw.githubusercontent.com/SamiAlmouss/Tqsim/main/install.ps1 | iex
+# Open a fresh terminal after installation, then:
+tqsim version -NoLogo
+# Expected: 1.0.4
+```
+
+After publication, an existing managed installation can use `tqsim update`, then `tqsim version -NoLogo`. The same public installer can repair/update an older launcher. Live URL installation remains a post-deployment check and has not been performed for unpublished v1.0.4. Use disposable data to test retention/deletion; never use valuable backups as smoke tests.
 
 ## Troubleshooting
 

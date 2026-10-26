@@ -18,7 +18,7 @@ $entries=(Get-TqsimUserPath) -split ';'
 Set-TqsimUserPath (($entries|Where-Object {$_.TrimEnd('\') -ine $bin.TrimEnd('\')})-join ';')
 $env:Path=(($env:Path -split ';'|Where-Object {$_.TrimEnd('\') -ine $bin.TrimEnd('\')})-join ';')
 # Delete only application file names, preserving arbitrary data even inside the install directory.
-$owned=@('tqsim.ps1','install.ps1','update.ps1','uninstall.ps1','version.json','README.md','IMPLEMENTATION.md','LICENSE','src/Core/Tqsim.psm1','examples/help.txt','src/Commands/CLI.ps1','src/Console/Branding.ps1','examples/help/split.txt','examples/help/merge.txt','examples/help/verify.txt','examples/help/info.txt','examples/help/update.txt','examples/help/uninstall.txt','examples/help/version.txt','examples/help/help.txt')
+$owned=@('tqsim.ps1','install.ps1','update.ps1','uninstall.ps1','version.json','README.md','IMPLEMENTATION.md','LICENSE','src/Core/Tqsim.psm1','src/Core/Deletion.ps1','examples/help.txt','src/Commands/CLI.ps1','src/Console/Branding.ps1','examples/help/split.txt','examples/help/merge.txt','examples/help/verify.txt','examples/help/info.txt','examples/help/update.txt','examples/help/uninstall.txt','examples/help/version.txt','examples/help/help.txt')
 foreach ($version in @(Get-ChildItem -LiteralPath (Join-Path $root 'versions') -Directory)) {
     if ($version.Attributes -band [IO.FileAttributes]::ReparsePoint) {continue}
     if ($version.Name -notmatch '^\d+\.\d+\.\d+-[0-9a-fA-F-]{36}$') {continue}

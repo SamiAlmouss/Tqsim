@@ -1,0 +1,19 @@
+INFO
+  tqsim info -Manifest <path>
+  tqsim info [-PartsPath <directory>]
+
+OPTIONS
+  -Manifest     Path to the .tqsim.json metadata file.
+  -PartsPath    Discover one manifest in this directory; default current directory.
+  -NoLogo       Hide branding.
+  -Quiet        Suppress routine branding; requested metadata remains visible.
+  -Diagnostics  Add development error details.
+  -NoColor      Disable Tqsim text colors.
+
+METADATA
+  Displays original filename, exact/human size, part size/count, original SHA-256,
+  creation timestamp, application version and manifest schema version.
+  Metadata inspection is not cryptographic verification of the actual parts.
+
+EXAMPLE
+  tqsim info -Manifest "E:\Parts\backup.iso.tqsim.json"

@@ -1,0 +1,20 @@
+VERIFY
+  tqsim verify [-PartsPath <directory>] [-Manifest <path>]
+
+OPTIONS
+  -PartsPath    Parts directory; default is the current working directory.
+  -Manifest     Explicit .tqsim.json; select it when several manifests exist.
+  -BufferSize   I/O buffer bytes, 4096..67108864; default 4194304.
+  -NoLogo       Hide branding.
+  -Quiet        Suppress routine output and progress; retain errors.
+  -Diagnostics  Add development error details.
+  -NoColor      Disable Tqsim text colors.
+
+INTEGRITY
+  Validates manifest schema, ordering, duplicate names and declared metadata.
+  Checks missing parts, exact byte lengths, each SHA-256 and the original hash.
+  Does not reconstruct a file. Missing or corrupted required parts fail nonzero.
+
+EXAMPLES
+  tqsim verify -PartsPath "E:\Parts"
+  tqsim verify -Manifest "E:\Parts\backup.iso.tqsim.json" -NoLogo

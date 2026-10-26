@@ -1,0 +1,41 @@
+SPLIT
+  tqsim split -File <source> -Size <size> [-Output <directory>] [-ds <true|false>]
+
+OPTIONS
+  -File         Original binary file; retained unless -ds true is explicit.
+  -ds           true or false (case insensitive). Default: false, keep source.
+                true deletes the original only after independently re-reading
+                and verifying all published parts, manifest and original hash.
+  -Size         Positive integer bytes or B, KB/KiB, MB/MiB, GB/GiB, TB/TiB.
+  -Output       Destination directory; defaults to Output beside the source.
+  -BufferSize   Bounded I/O buffer in bytes, 4096..67108864 (default 4194304).
+  -NoLogo       Hide branding; preserve operation output.
+  -Quiet        Suppress routine output and progress; errors remain visible.
+  -Diagnostics  Add exception type, source line, stack and inner exceptions.
+  -NoColor      Disable Tqsim text colors. NO_COLOR is also respected.
+
+SIZES AND INTEGRITY
+  Units are binary: 1GB = 1GiB = 1,073,741,824 bytes.
+  Decimal 1 gigabyte is 1,000,000,000 bytes; use -Size 1000000000 for that.
+  Streaming uses bounded memory for data, Int64 counts and SHA-256 hashes.
+  Parts and the .tqsim.json manifest are never silently overwritten.
+  Empty input produces zero parts and the empty-stream SHA-256 manifest.
+
+DELETE SOURCE WARNING
+  Delete Source is irreversible. Use true only when the generated data has
+  been verified and is stored safely. SHA-256 is not an independent backup
+  and does not guarantee future storage durability. Extra verification I/O
+  and locks are required. Unsafe links/identities cause deletion to fail closed.
+  Cleanup journals are retained for auditing; no automatic cleanup retry.
+
+EXAMPLES
+  tqsim split -File "D:\backup.iso" -Size 500MB
+  tqsim split -File "D:\backup.iso" -Size 1GB
+  tqsim split -File "D:\backup.iso" -Size 2GB -Output "E:\Parts"
+  tqsim split -File "D:\backup.iso" -Size 4GB -NoLogo
+  tqsim split -File "D:\backup.iso" -Size 2GB -ds false
+  tqsim split -File "D:\backup.iso" -Size 2GB -ds true
+
+HELP
+  tqsim help split
+  tqsim split --help

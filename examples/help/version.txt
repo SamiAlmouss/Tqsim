@@ -1,0 +1,7 @@
+VERSION
+  tqsim version
+  tqsim -version | --version | -v | -V
+
+  Reads the authoritative application version.json metadata.
+  -NoLogo hides branding; -Quiet keeps requested version output.
+  -NoColor disables colors; -Diagnostics adds development error details.

@@ -1,0 +1,9 @@
+HELP
+  tqsim help [command]
+  tqsim <command> --help
+
+  Global aliases: help, -help, --help, -h, --h, -?, /?, /help.
+  Case insensitive. No arguments displays the main help screen.
+  Command topics: split, merge/merg, verify, info, update, uninstall, version.
+  -NoLogo hides branding; -NoColor disables colors; -Diagnostics adds error detail.
+  Help never starts a file operation, updater or uninstaller.

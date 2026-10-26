@@ -24,6 +24,7 @@ EXAMPLES
   tqsim split -File "D:\backup.iso" -Size 2GB
   tqsim split -File "D:\backup.iso" -Size 500MB
   tqsim merg -PartsPath "D:\Parts"
+  tqsim split -File "D:\disposable.bin" -Size 2GB -ds false
   tqsim verify -PartsPath "D:\Parts"
 
 COMMAND HELP
@@ -36,4 +37,6 @@ NOTES
   Options are case insensitive; named file options use a single dash.
   Quote paths with spaces/Unicode. Use .\ before names starting with a dash.
   Decimal 1GB = 1,000,000,000 bytes; Tqsim 1GB = 1GiB = 1,073,741,824 bytes.
+  Split/merge support -ds true|false (default false). true is irreversible:
+  sources are deleted only after independent verification. Read command help.
   Exit codes: 0 success, 1 operational failure, 2 usage, 3 invalid integrity.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.4 — 2026-10-26
+
+- Add strict split/merge/merg `-ds true|false`, default false. Explicit true independently verifies published data and source identities before deleting exact source files; merge removes its manifest last and refuses shared/ambiguous parts.
+- Record durable write-ahead cleanup journals, preserve verified output on cleanup failure, and report confirmed deletions and remaining/unconfirmed entries with a nonzero exit. Journals never silently resume deletion.
+- Independently randomize logo and information colors from eight bright accents once per invocation; retain all three literal logos and stable selections through progress and resize.
+- Replace host-managed yellow progress with a bounded two-line display: progress bar on the first line, status/bytes/speed/elapsed/ETA on the second. Respect NoColor, NO_COLOR, Quiet and redirected output.
+- Preserve Int64 streaming, bounded data buffers, manifest schema, CLI aliases, collision protection and opt-in diagnostics. Add deletion, interruption, cross-drive, identity and color regression coverage.
+
+- Accept installation launched from Windows PowerShell 5.1 when PowerShell 7+ is installed. Discover and validate pwsh.exe, then hand off the self-contained loaded installer to a separate process without relying on script paths or a second download.
+- Keep PowerShell 7+ installation in-process, preserve child exit codes in LASTEXITCODE, prevent relaunch loops, and never exit the caller's interactive window. Retain checksum, ZIP, rollback, PATH and update behavior.
+- Add native 5.1/7 process tests for piped and downloaded-script invocation, success/failure parent survival, Unicode/quote-safe parameter forwarding and runtime discovery. Public URL verification is pending maintainer deployment; no release assets are overwritten.
+
 ## 1.0.3 — 2026-10-26
 
 - Centralize case-insensitive command dispatch, practical dash/slash help aliases, version aliases, command-specific help and conservative typo suggestions. Handle help before file-operation validation; reject unsupported arguments with exit code 2 without evaluating command text.
