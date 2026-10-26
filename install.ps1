@@ -3,7 +3,101 @@ param([string]$Repository='SamiAlmouss/Tqsim',[string]$InstallRoot=(Join-Path $e
 $ErrorActionPreference='Stop'
 function Get-TqsimUserPath { [Environment]::GetEnvironmentVariable('Path','User') }
 function Set-TqsimUserPath([AllowNull()][string]$Value) { [Environment]::SetEnvironmentVariable('Path',$Value,'User') }
-function Test-TqsimRuntimeAvailable { return ($PSVersionTable.PSVersion.Major -ge 7 -and [bool](Get-Command pwsh -ErrorAction SilentlyContinue)) }
+function Get-TqsimInstallerRuntimeVersion { return $PSVersionTable.PSVersion }
+function Test-TqsimRuntimeAvailable { return ((Get-TqsimInstallerRuntimeVersion).Major -ge 7) }
+function Invoke-TqsimInstallerProcess([string]$Executable,[string]$Arguments,[int]$TimeoutMilliseconds=0) {
+    $info=New-Object System.Diagnostics.ProcessStartInfo
+    $info.FileName=$Executable;$info.Arguments=$Arguments
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    $info.StandardOutputEncoding=[Text.Encoding]::UTF8;$info.StandardErrorEncoding=[Text.Encoding]::UTF8
+    $process=New-Object System.Diagnostics.Process
+    $process.StartInfo=$info
+    try {
+        if (!$process.Start()) {throw "Could not start $Executable."}
+        # Drain both pipes concurrently, including failures, to avoid pipe deadlocks.
+        $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+        if ($TimeoutMilliseconds -gt 0) {
+            if (!$process.WaitForExit($TimeoutMilliseconds)) {$process.Kill();$process.WaitForExit();throw "PowerShell probe timed out: $Executable"}
+        } else {$process.WaitForExit()}
+        return [pscustomobject]@{ExitCode=$process.ExitCode;StdOut=$stdout.GetAwaiter().GetResult();StdErr=$stderr.GetAwaiter().GetResult()}
+    } finally {$process.Dispose()}
+}
+function Test-TqsimPowerShellExecutable([string]$Path) {
+    try {
+        $result=Invoke-TqsimInstallerProcess $Path '-NoLogo -NoProfile -NonInteractive -Command "$PSVersionTable.PSVersion.Major"' -TimeoutMilliseconds 15000
+        $major=0
+        return ($result.ExitCode -eq 0 -and [int]::TryParse($result.StdOut.Trim(),[ref]$major) -and $major -ge 7)
+    } catch {return $false}
+}
+function Find-TqsimPowerShell {
+    $candidates=New-Object 'System.Collections.Generic.List[string]'
+    foreach ($command in @(Get-Command pwsh.exe -CommandType Application -All -ErrorAction SilentlyContinue)) {$candidates.Add($command.Source)}
+    foreach ($base in @($env:ProgramFiles,$env:ProgramW6432,${env:ProgramFiles(x86)})) {
+        if ($base) {$candidates.Add((Join-Path $base 'PowerShell/7/pwsh.exe'))}
+    }
+    foreach ($base in @($env:LOCALAPPDATA,[Environment]::GetFolderPath('LocalApplicationData'))) {
+        if ($base) {
+            $candidates.Add((Join-Path $base 'Microsoft/WindowsApps/pwsh.exe'))
+            $candidates.Add((Join-Path $base 'Programs/PowerShell/7/pwsh.exe'))
+        }
+    }
+    $seen=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $candidates) {
+        if ($seen.Add($path) -and (Test-Path -LiteralPath $path -PathType Leaf) -and (Test-TqsimPowerShellExecutable $path)) {return $path}
+    }
+    return $null
+}
+function Start-TqsimInstallerBootstrap([string]$Executable,[string]$Repository,[string]$InstallRoot) {
+    # Serialize only our self-contained installer functions. No original script
+    # path, second network request, or moving-branch re-download is required.
+    $names=@('Get-TqsimUserPath','Set-TqsimUserPath','Get-TqsimInstallerRuntimeVersion','Test-TqsimRuntimeAvailable','Invoke-TqsimInstallerProcess','Test-TqsimPowerShellExecutable','Find-TqsimPowerShell','Start-TqsimInstallerBootstrap','Invoke-TqsimInstaller','Install-TqsimRelease')
+    $definitions=foreach ($name in $names) {"function $name {`n"+(Get-Command $name -CommandType Function -ErrorAction Stop).Definition+"`n}"}
+    $configuration=@{Repository=$Repository;InstallRoot=$InstallRoot}|ConvertTo-Json -Compress
+    $encodedConfiguration=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($configuration))
+    $payload='$ErrorActionPreference = ''Stop'''+"`n"+($definitions -join "`n")+"`n"+
+        '$configuration = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+$encodedConfiguration+''')) | ConvertFrom-Json'+"`n"+@'
+try {
+    $code=Invoke-TqsimInstaller -Repository $configuration.Repository -InstallRoot $configuration.InstallRoot -Relaunched
+    exit $code
+} catch {
+    [Console]::Error.WriteLine('Tqsim installation failed: '+$_.Exception.Message)
+    exit 1
+}
+'@
+    $directory=Join-Path ([IO.Path]::GetTempPath()) ('Tqsim-bootstrap-'+[guid]::NewGuid())
+    $null=[IO.Directory]::CreateDirectory($directory);$script=Join-Path $directory 'bootstrap.ps1'
+    try {
+        [IO.File]::WriteAllText($script,$payload,(New-Object Text.UTF8Encoding $true))
+        $encodedPath=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+        # A short encoded loader avoids Windows' command-line size limit and
+        # quoting hazards. Execution policy is not changed at any scope.
+        $loader='$ErrorActionPreference=''Stop''; try { $path=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+$encodedPath+''')); & ([scriptblock]::Create([IO.File]::ReadAllText($path))) } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }'
+        $encodedLoader=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($loader))
+        $result=Invoke-TqsimInstallerProcess $Executable ('-NoLogo -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '+$encodedLoader)
+        if ($result.StdOut) {[Console]::Out.Write($result.StdOut)}
+        if ($result.StdErr) {[Console]::Error.Write($result.StdErr)}
+        return [int]$result.ExitCode
+    } finally {
+        # Only this invocation's generated file is deleted; no recursive cleanup.
+        if ([IO.File]::Exists($script)) {[IO.File]::Delete($script)}
+        if ([IO.Directory]::Exists($directory) -and [IO.Directory]::GetFileSystemEntries($directory).Length -eq 0) {[IO.Directory]::Delete($directory)}
+    }
+}
+function Invoke-TqsimInstaller {
+    param([string]$Repository,[string]$InstallRoot,[switch]$Relaunched)
+    if ($env:OS -ne 'Windows_NT') {throw 'Tqsim installation requires Windows.'}
+    $runtime=Get-TqsimInstallerRuntimeVersion
+    if ($runtime.Major -ge 7) {
+        Install-TqsimRelease -Repository $Repository -InstallRoot $InstallRoot | Out-Host
+        return 0
+    }
+    if ($Relaunched) {throw "Installer handoff started PowerShell $runtime instead of PowerShell 7+. Refusing to relaunch again."}
+    $pwsh=Find-TqsimPowerShell
+    if (!$pwsh) {throw 'PowerShell 7 was not found. Install it with: winget install --id Microsoft.PowerShell --source winget'}
+    Write-Host "PowerShell $runtime detected; continuing the installer in PowerShell 7+."
+    return Start-TqsimInstallerBootstrap -Executable $pwsh -Repository $Repository -InstallRoot $InstallRoot
+}
 # This script is intentionally self-contained for irm | iex.
 function Install-TqsimRelease {
     param([string]$Repository,[string]$InstallRoot)
@@ -85,12 +179,17 @@ function Install-TqsimRelease {
     }
 }
 if ($MyInvocation.InvocationName -ne '.') {
+    $installerExitCode=1
     try {
-        Install-TqsimRelease `
+        $installerExitCode=Invoke-TqsimInstaller `
             -Repository $Repository `
             -InstallRoot $InstallRoot
+        $global:LASTEXITCODE=$installerExitCode
+        if ($installerExitCode -ne 0) {throw "PowerShell 7 installer exited with code $installerExitCode. See the child error above."}
     }
     catch {
+        # Never exit the caller: irm | iex runs inside the user's parent shell.
+        $global:LASTEXITCODE=$installerExitCode
         throw "Tqsim installation failed: $($_.Exception.Message)"
     }
 }
