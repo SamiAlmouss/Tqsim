@@ -284,8 +284,10 @@ UNINSTALL
   files and its exact PATH entry. Preserves user split files and manifests.
   Restart other terminals to refresh their PATH.
   No confirmation prompt or command-specific option exists. Source checkouts
-  cannot self-uninstall. Directories, arbitrary user files and private recovery
-  records are preserved. All switches default off.
+  cannot self-uninstall. Empty application directories are pruned. Arbitrary
+  user files/directories and private recovery records are preserved. Ownership
+  is retained if data remains, so reinstall works. Clean uninstall removes the
+  marker/root last. All switches default off.
   Help: -help, --help, -h, --h, -?, /?, /help; also uninstall help.
 
 EXAMPLES

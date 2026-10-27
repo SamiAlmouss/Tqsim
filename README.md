@@ -2,7 +2,7 @@
 
 [English](README.md) | [العربية](README.ar.md)
 
-**Secure file splitter and merger for Windows · Documentation release 1.0.7 · MIT**
+**Secure file splitter and merger for Windows · Maintenance release 1.0.8 · MIT**
 
 Tqsim splits large binary files into upload-sized parts and reconstructs the original bytes from those parts and their manifest. Use it to transfer backups, work around cloud upload limits, verify downloaded archives, or encrypt parts before storing them elsewhere. The original source is not needed for restoration.
 
@@ -202,7 +202,7 @@ tqsim uninstall
 | --- | --- |
 | Globals only | No command-specific options or confirmation prompt; requires managed installation |
 
-Removes known owned application files/launcher/marker and its exact user PATH entry. Arbitrary user data, directories and private recovery records remain. Other terminals must restart to refresh PATH. This command does not uninstall a source checkout or clean archive data.
+Removes known owned application files/launcher and its exact user PATH entry, then prunes empty application directories. A clean uninstall removes the ownership marker and installation root last. If unrelated files or directories remain, they and the ownership marker are preserved so reinstall remains possible. Private recovery records are untouched. Other terminals must restart to refresh PATH. This command does not uninstall a source checkout or clean archive data.
 
 ### version
 
@@ -315,11 +315,13 @@ Encrypted merge adds plaintext `E:\EncryptedParts\backup.iso`; there is no extra
 
 v1.0.5 removed redundant full-file reads: split reads source once; merge validates parts in its writing pass; verify=true adds exactly one output pass. Source deletion adds metadata/identity checks, not another payload scan. Data buffers remain bounded; manifest memory and cleanup handles scale with part count. Encryption adds KDF startup and per-record framing/authentication work.
 
-Historical v1.0.6 measurements on local Windows storage, PowerShell 7, real random **5 GiB + 17 bytes**: encrypted 1GB parts with read-back split/merge took **35.113/31.735 seconds** (145.82/161.34 MiB/s). Encrypted fast-mode 2GB parts took **22.158/20.734 seconds**. Single runs used uncontrolled cache/storage; hardware was not standardized and these are not guaranteed speeds or an isolated cipher benchmark. Actual 2GB/4GB parts were exercised. See [full v1.0.6 measurements](docs/VALIDATION-v1.0.6.md) and [v1.0.5 optimization report](docs/PERFORMANCE-v1.0.5.md). These are historical engine results, not newly executed v1.0.7 multi-gigabyte benchmarks. No physical 200GB/1TB test is claimed.
+Historical v1.0.6 measurements on local Windows storage, PowerShell 7, real random **5 GiB + 17 bytes**: encrypted 1GB parts with read-back split/merge took **35.113/31.735 seconds** (145.82/161.34 MiB/s). Encrypted fast-mode 2GB parts took **22.158/20.734 seconds**. Single runs used uncontrolled cache/storage; hardware was not standardized and these are not guaranteed speeds or an isolated cipher benchmark. Actual 2GB/4GB parts were exercised. See [full v1.0.6 measurements](docs/VALIDATION-v1.0.6.md) and [v1.0.5 optimization report](docs/PERFORMANCE-v1.0.5.md). These are historical engine results, not newly executed v1.0.8 multi-gigabyte benchmarks. No physical 200GB/1TB test is claimed.
 
 ## Troubleshooting
 
 See [symptoms, causes and remedies](docs/TROUBLESHOOTING.md) for access denied, missing/corrupt parts, SHA-256 mismatch, passwords/authentication, existing destination, free space, unsupported formats, runtime/update failures, incomplete cleanup, interrupted operations and missing manifests. Keep original parts/manifests; never edit hashes to hide failures. `-Diagnostics` exposes technical details for debugging. Exit codes: 0 success, 1 operational/deployment/cleanup failure, 2 usage, 3 metadata/integrity/authentication failure; missing-part classification depends on pipeline. Treat all nonzero codes as failure.
+
+An old uninstaller may leave only empty bin/versions directory trees without a marker. The corrected installer accepts an empty target or that recognized, file-free layout without recursively deleting anything. Hidden files, unknown directories, links, or an invalid/unreadable marker still block adoption; preserve data and choose another InstallRoot or restore valid ownership metadata.
 
 ## Updating and uninstalling
 
@@ -331,7 +333,7 @@ tqsim version -NoLogo
 tqsim uninstall
 ```
 
-Update checks and applies a newer stable release; no check-only flag exists. Uninstall has no confirmation prompt, removes known app files/PATH only, and preserves arbitrary user data/directories/recovery records. Both require an installer-managed ownership marker and do not operate on a source checkout. Open a fresh terminal after PATH changes. Neither operation should be used as archive cleanup.
+Update checks and applies a newer stable release; no check-only flag exists. Uninstall has no confirmation prompt, removes known app files/PATH only, and preserves arbitrary user data/nonempty directories/recovery records. Both require an installer-managed ownership marker and do not operate on a source checkout. Open a fresh terminal after PATH changes. Neither operation should be used as archive cleanup.
 
 ## Security notes
 
@@ -363,7 +365,7 @@ Invoke-Pester ./tests
 pwsh -NoProfile -File ./scripts/build-release.ps1
 ```
 
-The build produces `dist/Tqsim-v1.0.7.zip` and `.zip.sha256`, refuses an existing ZIP, and excludes tests/profilers/test data. [Documentation coverage and audit](docs/HELP-COVERAGE.md) tracks command/parameter coverage; [release validation](docs/VALIDATION-v1.0.7.md) records actual results. The v1.0.7 scope is help/docs only: the binary/SHA/encryption/cleanup engine remains byte-identical to v1.0.6.
+The build produces `dist/Tqsim-v1.0.8.zip` and `.zip.sha256`, refuses an existing ZIP, and excludes tests/profilers/test data. [Documentation coverage and audit](docs/HELP-COVERAGE.md) tracks command/parameter coverage; [release validation](docs/VALIDATION-v1.0.8.md) records actual results. Version 1.0.8 packages the installer/uninstaller lifecycle and Windows launcher fixes. Existing v1.0.7 functionality, help, archive formats and the binary/SHA/encryption engine remain unchanged.
 
 Maintainer publication is manual and must be authorized. Review/stage only intended files, commit to the release branch, then after approval (assuming main is the intended branch and origin is SamiAlmouss/Tqsim):
 
@@ -371,15 +373,15 @@ Maintainer publication is manual and must be authorized. Review/stage only inten
 git status --short
 git diff
 # Review, stage intended files and commit before tagging:
-git tag v1.0.7
+git tag v1.0.8
 # Upload the reviewed commit/tag without changing main/install.ps1 yet:
-git push origin v1.0.7
-gh release create v1.0.7 ./dist/Tqsim-v1.0.7.zip ./dist/Tqsim-v1.0.7.zip.sha256 --repo SamiAlmouss/Tqsim --title 'Tqsim v1.0.7' --notes-file CHANGELOG.md
+git push origin v1.0.8
+gh release create v1.0.8 ./dist/Tqsim-v1.0.8.zip ./dist/Tqsim-v1.0.8.zip.sha256 --repo SamiAlmouss/Tqsim --title 'Tqsim v1.0.8' --notes-file CHANGELOG.md
 # Only after both assets are live, deploy the matching main installer:
 git push origin main
 ```
 
-After authorized deployment, test the exact public installer above in disposable Windows PowerShell 5.1 and PowerShell 7 sessions, then confirm `tqsim version -NoLogo` reports 1.0.7. This live-URL test is pending publication. Existing managed users can then run `tqsim update`. Nothing is pushed, tagged, published or installed automatically by this task.
+After authorized deployment, test the exact public installer above in disposable Windows PowerShell 5.1 and PowerShell 7 sessions, then confirm `tqsim version -NoLogo` reports 1.0.8. This live-URL test is pending publication. Existing managed users can then run `tqsim update`. Nothing is pushed, tagged, published or installed automatically by this task.
 
 ## License and contributing
 

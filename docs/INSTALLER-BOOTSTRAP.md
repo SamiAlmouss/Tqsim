@@ -85,3 +85,45 @@ $LASTEXITCODE
 ```
 
 Success should report exit code 0 and the installed release version. Open a fresh terminal and run `tqsim version -NoLogo`. Confirm that 5.1 reports a single handoff and that 7+ does not relaunch. Repeat installation to check PATH deduplication. Record the exact runtime versions and live results before claiming public one-line installation is deployed and verified.
+
+## v1.0.8 install/uninstall/reinstall lifecycle correction
+
+Earlier uninstallers deleted only known files and the root ownership marker, leaving empty bin/versions and nested application directories. The next installer correctly refused the now-unowned root. Merely deleting the ownership check would risk unrelated data.
+
+The corrected uninstaller prunes only known empty directories, bottom-up, using nonrecursive directory deletion and checking root boundaries/reparse points. Each version's version.json is deleted last, so denied/interrupted file cleanup keeps ownership proof for retry. The root marker is removed only after all other content is gone, followed by the empty root. When unrelated files/directories remain, they and the marker remain for safe reinstallation; the launcher/PATH entry is removed. Private recovery records remain untouched.
+
+The corrected installer accepts a genuinely empty target or a markerless directory-only legacy layout: top-level bin (empty), versions, version-number/GUID children and only known empty src/Core, src/Commands, src/Console, examples/help and docs directory structures. It never deletes files to make a candidate qualify. Hidden entries are enumerated; files, unknown directory names, reparse points and corrupt/unreadable/linked markers fail closed with guidance to preserve data and choose another InstallRoot or restore ownership. Fresh-install rollback also applies to adopted empty targets, making a late failure retryable.
+
+Run the corrected local install.ps1 from this checkout to use that preflight; it is not deployed automatically. Earlier published/release ZIPs remain unchanged; the prepared v1.0.8 release packages the corrected uninstaller. A corrected main installer can recover the recognized empty remnants of an older packaged uninstaller. The public one-line command changes only after authorized deployment.
+
+Lifecycle regressions cover repeated cycles, recovered old scaffolds, empty targets, preserved user data/root provenance, hidden files/unknown directories, invalid/directory/locked markers, junctions, interrupted read-only cleanup/retry and late PATH rollback. Persistent PATH/network are mocked in isolated fixtures; native Windows PowerShell 5.1 bootstrap and real Windows launchers are exercised without updating the user's application.
+Initial local lifecycle verification before the additional mandatory regressions: full Pester 4.10.1 suite on PowerShell 7.6.5 — 241 passed, 0 failed/skipped/pending/inconclusive, 192.64 seconds. Installer/bootstrap/documentation suite on installed PowerShell 7.6.9 — 57 passed, 0 failed/skipped/pending/inconclusive, 75.46 seconds. Evidence: .test-work/lifecycle-full.xml and .test-work/lifecycle-store.xml. Existing release ZIP/checksum hashes remain unchanged; no deployment/global install was performed.
+
+## Additional mandatory legacy-layout and installed-command regressions
+
+The exact initial tree is created beneath an isolated LOCALAPPDATA, with no ownership marker and no extra version child:
+
+```text
+%LOCALAPPDATA%\Programs\Tqsim\
+    bin\        (empty)
+    versions\   (empty)
+```
+
+The test asserts both directories exist and are empty, root has exactly those two entries, and marker is absent. Installation, clean uninstall (root absent) and reinstallation then succeed with one PATH entry. Additional cases reject nonempty bin, versions and nested version content before network/download/PATH changes, preserving exact binary hashes. Five actual NTFS junction tests cover root, bin, versions, a nested version docs directory and the marker path; target sentinel data remains unchanged. Corrupt/empty/wrong-application/locked ownership markers block recovery, including alongside the exact empty legacy tree.
+
+A native test resolves tqsim from the fixture installation's PATH and executes the actual tqsim.cmd → pwsh → dispatch.ps1 → tqsim.ps1 → uninstall.ps1 chain. It performs two install/uninstall cycles and a final reinstall, asserts the complete installation root disappears after each uninstall, verifies exit codes 0/1/2/3, checks Unicode/space/! argument forwarding with an actual split/verify/merge SHA-256 round trip, and proves a parent CALL batch resumes after uninstall. No manual directory cleanup is used.
+
+This native test exposed a real additional bug: deleting tqsim.cmd during uninstall caused cmd to reopen its deleted batch context and return an error. The corrected launcher leaves that context with `(goto) 2>nul` before invoking pwsh on the same expanded line. It naturally propagates the child status without exiting the parent shell, reopening the deleted file, or enabling delayed expansion that would alter ! in paths. Tests verify both PowerShell and parent-batch callers survive. An intermediate bare exit /b approach failed to preserve nonzero codes and was replaced, not accepted.
+
+Isolation: installs use mocked release metadata/downloads and normal checksum/ZIP validation. Only the two persistent-PATH accessor bodies in the native test's packaged uninstaller are redirected to a fixture text file; its checksum/asset lengths are recalculated. Application CLI, dispatcher, ownership checks and cleanup run unchanged. The real user registry PATH is independently checked unchanged. No global Tqsim installation, published URL or release archive is modified. Initial synthetic-attribute mock leakage was corrected by explicitly limiting its activation to that test; safety assertions were not weakened.
+
+**Native symbolic-link limitation:** Windows denied both PowerShell and .NET file-symlink creation because the client lacks the required privilege. No actual file-symlink creation test is claimed. Actual junction/reparse tests and a direct shared-ReparsePoint-flag test pass; the latter confirms rejection before scaffold inspection. No UAC elevation or permission bypass was attempted. This limitation is separate from the final Pester skip count (zero).
+
+Final complete suites (Pester 4.10.1):
+
+| Runtime | Passed | Failed | Skipped / pending / inconclusive | Time |
+| --- | ---: | ---: | --- | ---: |
+| PowerShell 7.6.5 | 253 | 0 | 0 / 0 / 0 | 217.50 s |
+| PowerShell 7.6.9 | 253 | 0 | 0 / 0 / 0 | 236.88 s |
+
+All 241 preceding tests remain; 12 additional parameterized cases were added. Full suites include native Windows PowerShell 5.1 installer handoff, checksum/ZIP rejection, rollback/retry, PATH deduplication and previous binary/encryption/cleanup/help coverage. Evidence: `.test-work/legacy-exact-full-765.xml` and `.test-work/legacy-exact-full-store.xml`. The final focused installer run also passed 42/42. Initial new focused tests exposed the launcher failure and a test-isolation defect; all final completed suites above have zero outstanding failures. Existing release ZIPs/checksums and all processing/branding source hashes remain unchanged. Public deployment/global installation is not performed.

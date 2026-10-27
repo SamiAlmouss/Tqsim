@@ -51,7 +51,7 @@ function Find-TqsimPowerShell {
 function Start-TqsimInstallerBootstrap([string]$Executable,[string]$Repository,[string]$InstallRoot) {
     # Serialize only our self-contained installer functions. No original script
     # path, second network request, or moving-branch re-download is required.
-    $names=@('Get-TqsimUserPath','Set-TqsimUserPath','Get-TqsimInstallerRuntimeVersion','Test-TqsimRuntimeAvailable','Invoke-TqsimInstallerProcess','Test-TqsimPowerShellExecutable','Find-TqsimPowerShell','Start-TqsimInstallerBootstrap','Invoke-TqsimInstaller','Install-TqsimRelease')
+    $names=@('Get-TqsimUserPath','Set-TqsimUserPath','Get-TqsimInstallerRuntimeVersion','Test-TqsimRuntimeAvailable','Invoke-TqsimInstallerProcess','Test-TqsimPowerShellExecutable','Find-TqsimPowerShell','Start-TqsimInstallerBootstrap','Invoke-TqsimInstaller','Test-TqsimEmptyInstallScaffold','Install-TqsimRelease')
     $definitions=foreach ($name in $names) {"function $name {`n"+(Get-Command $name -CommandType Function -ErrorAction Stop).Definition+"`n}"}
     $configuration=@{Repository=$Repository;InstallRoot=$InstallRoot}|ConvertTo-Json -Compress
     $encodedConfiguration=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($configuration))
@@ -99,6 +99,28 @@ function Invoke-TqsimInstaller {
     return Start-TqsimInstallerBootstrap -Executable $pwsh -Repository $Repository -InstallRoot $InstallRoot
 }
 # This script is intentionally self-contained for irm | iex.
+function Test-TqsimEmptyInstallScaffold([string]$Root) {
+    # Recognize only empty directory layouts produced by older uninstallers.
+    # Enumerate hidden entries too; never follow links or remove/adopt any files.
+    foreach ($entry in [IO.Directory]::GetFileSystemEntries($Root)) {
+        $attributes=[IO.File]::GetAttributes($entry);$name=[IO.Path]::GetFileName($entry)
+        if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or !($attributes -band [IO.FileAttributes]::Directory) -or $name -notin @('bin','versions')) {return $false}
+        if ($name -ieq 'bin') {if ([IO.Directory]::GetFileSystemEntries($entry).Length) {return $false};continue}
+        foreach ($version in [IO.Directory]::GetFileSystemEntries($entry)) {
+            $attributes=[IO.File]::GetAttributes($version);$name=[IO.Path]::GetFileName($version);$id=[guid]::Empty
+            if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or !($attributes -band [IO.FileAttributes]::Directory) -or $name -notmatch '^\d+\.\d+\.\d+-(.+)$' -or ![guid]::TryParse($Matches[1],[ref]$id)) {return $false}
+            $pending=New-Object 'System.Collections.Generic.Stack[string]';$pending.Push($version)
+            while ($pending.Count) {
+                foreach ($child in [IO.Directory]::GetFileSystemEntries($pending.Pop())) {
+                    $relative=$child.Substring($version.Length+1).Replace('\','/');$attributes=[IO.File]::GetAttributes($child)
+                    if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or !($attributes -band [IO.FileAttributes]::Directory) -or $relative -notin @('src','src/Core','src/Commands','src/Console','examples','examples/help','docs')) {return $false}
+                    $pending.Push($child)
+                }
+            }
+        }
+    }
+    return $true
+}
 function Install-TqsimRelease {
     param([string]$Repository,[string]$InstallRoot)
     if ($env:OS -ne 'Windows_NT') {throw 'Tqsim installation requires Windows.'}
@@ -108,12 +130,22 @@ function Install-TqsimRelease {
     $null=[IO.Directory]::CreateDirectory($parent)
     $walk=[IO.DirectoryInfo]::new($parent)
     while ($walk) {if ($walk.Attributes -band [IO.FileAttributes]::ReparsePoint) {throw 'Installation path cannot contain reparse points.'};$walk=$walk.Parent}
-    if ((Test-Path -LiteralPath $root) -and ((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint)) {throw 'Installation root cannot be a reparse point.'}
-    if ((Test-Path -LiteralPath $root) -and !(Test-Path -LiteralPath (Join-Path $root '.tqsim-install.json'))) {throw 'Refusing to replace an unowned directory.'}
-    $rootExisted=Test-Path -LiteralPath $root
+    if (Test-Path -LiteralPath $root) {
+        $item=Get-Item -LiteralPath $root -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {throw 'Installation root cannot be a reparse point.'}
+        if (!$item.PSIsContainer) {throw 'Installation root must be a directory.'}
+        if (!(Test-Path -LiteralPath (Join-Path $root '.tqsim-install.json')) -and !(Test-TqsimEmptyInstallScaffold $root)) {throw 'Refusing to replace an unowned directory. Only an empty directory or recognized empty Tqsim scaffold can be reused. Preserve remaining files and choose a different -InstallRoot.'}
+    }
     $temp=Join-Path ([IO.Path]::GetTempPath()) ('Tqsim-'+[guid]::NewGuid())
-    $stage=Join-Path $root ('versions/.stage-'+[guid]::NewGuid());$published=$null;$previousPath=Get-TqsimUserPath;$previousSession=$env:Path;$marker=Join-Path $root '.tqsim-install.json';$oldMarker=if ([IO.File]::Exists($marker)) {[IO.File]::ReadAllText($marker)} else {$null}
-    if ($oldMarker -and (($oldMarker|ConvertFrom-Json).application -cne 'Tqsim')) {throw 'Invalid installation marker.'}
+    $stage=Join-Path $root ('versions/.stage-'+[guid]::NewGuid());$published=$null;$previousPath=Get-TqsimUserPath;$previousSession=$env:Path;$marker=Join-Path $root '.tqsim-install.json';$oldMarker=$null
+    if (Test-Path -LiteralPath $marker) {
+        try {
+            if ((Get-Item -LiteralPath $marker -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {throw 'Linked marker.'}
+            $oldMarker=[IO.File]::ReadAllText($marker);$installed=$oldMarker|ConvertFrom-Json -ErrorAction Stop
+            $selected=[IO.Path]::GetFullPath([string]$installed.current)
+            if ($installed.application -cne 'Tqsim' -or $installed.version -notmatch '^\d+\.\d+\.\d+$' -or [IO.Path]::GetDirectoryName($selected) -ine (Join-Path $root 'versions')) {throw 'Invalid ownership metadata.'}
+        } catch {throw 'Invalid or unreadable installation ownership marker. No installation files were replaced. Restore the original marker or choose a different -InstallRoot; do not delete unknown data.'}
+    }
     foreach ($relative in 'versions','bin') { $p=Join-Path $root $relative;if ((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint)) {throw 'Installation subdirectories cannot be reparse points.'} }
     $null=[IO.Directory]::CreateDirectory($temp)
     try {
@@ -151,7 +183,11 @@ function Install-TqsimRelease {
         # A stable dispatcher reads the selected immutable installation. No application code runs before checksum validation.
         $dispatcher=Join-Path $bin 'dispatch.ps1'
         [IO.File]::WriteAllText($dispatcher, '@{'+"`n"+'} | Out-Null'+"`n"+'$m=Get-Content -LiteralPath (Join-Path $PSScriptRoot ''../.tqsim-install.json'') -Raw | ConvertFrom-Json'+"`n"+'& (Join-Path $m.current ''tqsim.ps1'') @args'+"`n"+'exit $LASTEXITCODE')
-        [IO.File]::WriteAllText($launcher,"@echo off`r`npwsh.exe -NoLogo -NoProfile -File `"%~dp0dispatch.ps1`" %*`r`nexit /b %errorlevel%`r`n")
+        # Expand this line while the launcher exists, then leave its batch
+        # context before pwsh runs. Uninstall may delete it; cmd must not reopen
+        # it afterward. The child's status propagates without exiting the caller
+        # shell or enabling delayed expansion (which would alter ! in paths).
+        [IO.File]::WriteAllText($launcher,"@echo off`r`n(goto) 2>nul & pwsh.exe -NoLogo -NoProfile -File `"%~dp0dispatch.ps1`" %*`r`n")
         $newMarker=Join-Path $root ('.marker-'+[guid]::NewGuid()+'.tmp')
         [IO.File]::WriteAllText($newMarker,(@{application='Tqsim';version=$version;repository=$Repository;current=$published}|ConvertTo-Json))
         if ([IO.File]::Exists($marker)) {[IO.File]::Replace($newMarker,$marker,[System.Management.Automation.Language.NullString]::Value)} else {[IO.File]::Move($newMarker,$marker)}
@@ -161,12 +197,12 @@ function Install-TqsimRelease {
     } catch {
         Set-TqsimUserPath $previousPath;$env:Path=$previousSession
         if ($oldMarker) {[IO.File]::WriteAllText($marker,$oldMarker)} elseif ([IO.File]::Exists($marker)) {[IO.File]::Delete($marker)}
-        if (!$rootExisted) {
+        if (!$oldMarker) {
             # Remove only known staged application files; retain any unexpected user data.
             foreach ($candidate in @($stage,$published)|Where-Object {$_}) {
                 $resolved=[IO.Path]::GetFullPath($candidate)
                 if (!$resolved.StartsWith((Join-Path $root 'versions')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) {continue}
-                foreach ($relative in 'tqsim.ps1','install.ps1','update.ps1','uninstall.ps1','version.json','README.md','README.ar.md','CHANGELOG.md','docs/COMMANDS.md','docs/PARAMETERS.md','docs/TROUBLESHOOTING.md','docs/HELP-COVERAGE.md','docs/INSTALLER-BOOTSTRAP.md','docs/PERFORMANCE-v1.0.5.md','docs/VALIDATION-v1.0.4.md','docs/VALIDATION-v1.0.5.md','docs/VALIDATION-v1.0.6.md','docs/VALIDATION-v1.0.7.md','IMPLEMENTATION.md','LICENSE','src/Core/Tqsim.psm1','src/Core/Deletion.ps1','src/Core/Encryption.ps1','src/Core/Crypto.cs','src/Core/Errors.ps1','docs/ENCRYPTED-FORMAT-v1.md','examples/help.txt','src/Commands/CLI.ps1','src/Console/Branding.ps1','examples/help/split.txt','examples/help/merge.txt','examples/help/verify.txt','examples/help/info.txt','examples/help/update.txt','examples/help/uninstall.txt','examples/help/version.txt','examples/help/help.txt') {$p=Join-Path $resolved $relative;if ([IO.File]::Exists($p)) {[IO.File]::Delete($p)}}
+                foreach ($relative in 'tqsim.ps1','install.ps1','update.ps1','uninstall.ps1','version.json','README.md','README.ar.md','CHANGELOG.md','docs/COMMANDS.md','docs/PARAMETERS.md','docs/TROUBLESHOOTING.md','docs/HELP-COVERAGE.md','docs/INSTALLER-BOOTSTRAP.md','docs/PERFORMANCE-v1.0.5.md','docs/VALIDATION-v1.0.4.md','docs/VALIDATION-v1.0.5.md','docs/VALIDATION-v1.0.6.md','docs/VALIDATION-v1.0.7.md','docs/VALIDATION-v1.0.8.md','IMPLEMENTATION.md','LICENSE','src/Core/Tqsim.psm1','src/Core/Deletion.ps1','src/Core/Encryption.ps1','src/Core/Crypto.cs','src/Core/Errors.ps1','docs/ENCRYPTED-FORMAT-v1.md','examples/help.txt','src/Commands/CLI.ps1','src/Console/Branding.ps1','examples/help/split.txt','examples/help/merge.txt','examples/help/verify.txt','examples/help/info.txt','examples/help/update.txt','examples/help/uninstall.txt','examples/help/version.txt','examples/help/help.txt') {$p=Join-Path $resolved $relative;if ([IO.File]::Exists($p)) {[IO.File]::Delete($p)}}
                 foreach ($relative in 'src/Core','src/Commands','src/Console','src','examples/help','examples','docs','') {$p=if ($relative) {Join-Path $resolved $relative} else {$resolved};if ([IO.Directory]::Exists($p) -and [IO.Directory]::GetFileSystemEntries($p).Length -eq 0) {[IO.Directory]::Delete($p)}}
             }
             foreach ($relative in 'bin/tqsim.cmd','bin/dispatch.ps1') {$p=Join-Path $root $relative;if ([IO.File]::Exists($p)) {[IO.File]::Delete($p)}}

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.8 — 2026-10-27
+
+- Add the exact empty bin/versions legacy regression and native PATH-resolved tqsim uninstall/reinstall coverage. Fix Windows launcher self-deletion handling while preserving child exit codes, parent-shell survival and literal ! arguments. Preserve all v1.0.7 processing, encryption, help and CLI behavior; actual symlink creation remains privilege-limited as documented.
+
+- Prune only empty known application directories after uninstall. Remove ownership metadata/root last on clean removal; retain ownership when unrelated data remains so reinstall is safe.
+- Recover markerless empty bin/versions scaffolding left by older uninstallers without deleting files or accepting unknown directories/links. Reject corrupt/unreadable ownership metadata with actionable guidance.
+- Retain rollback/retry behavior for recovered empty roots and add install/uninstall/reinstall, user-data, hidden-entry, junction, unreadable-marker and interrupted-cleanup regressions. Existing release ZIPs remain unchanged.
+
 ## 1.0.7 — 2026-10-26
 
 - Documentation/help release only: preserve byte-identical split/merge, SHA-256, encryption, deletion and branding engine sources and all archive formats.
